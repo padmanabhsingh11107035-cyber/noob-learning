@@ -3,6 +3,7 @@ import streamlit.components.v1 as components
 import mysql.connector
 import datetime
 import base64
+import zoneinfo  # Built-in in Python 3.9+ for accurate IST timezone
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -115,6 +116,19 @@ def render_html_image(img_url, width=40, height=40, circle=True):
         style += " border-radius:50%;"
     st.markdown(f'<img src="{img_url}" style="{style}">', unsafe_allow_html=True)
 
+def format_to_ist(dt_object):
+    """ Helper to format database timestamps accurately into 12-hour IST time """
+    if not dt_object:
+        return ""
+    if isinstance(dt_object, datetime.datetime):
+        if dt_object.tzinfo is None:
+            dt_utc = dt_object.replace(tzinfo=datetime.timezone.utc)
+            dt_ist = dt_utc.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
+        else:
+            dt_ist = dt_object.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
+        return dt_ist.strftime("%Y-%m-%d %I:%M:%S %p")
+    return str(dt_object)
+
 # Dialog for Top Left Profile Icon Click
 @st.dialog("📷 Update Profile Picture")
 def update_profile_pic_dialog():
@@ -207,8 +221,8 @@ if not st.session_state.user:
 else:
     user = st.session_state.user
 
-    # TOP HEADER WITH USER PROFILE ICON
-    header_col1, header_col2, header_col3 = st.columns([1, 4, 1])
+    # TOP HEADER WITH USER PROFILE ICON & CLOCK
+    header_col1, header_col2, header_col3 = st.columns([1, 3, 2])
     with header_col1:
         user_avatar = get_user_pic(user)
         render_html_image(user_avatar, width=44, height=44, circle=True)
@@ -220,6 +234,8 @@ else:
         st.caption(f"Logged in as @{user['username']}")
 
     with header_col3:
+        ist_now = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata"))
+        st.markdown(f"🕒 **{ist_now.strftime('%I:%M %p')}** | `{ist_now.strftime('%d %b %Y')}`")
         if st.button("Logout"):
             st.session_state.user = None
             st.session_state.view_user_id = None
@@ -261,7 +277,7 @@ else:
                             render_html_image(get_user_pic(post), width=40, height=40, circle=True)
                         with h_col2:
                             st.markdown(f"**@{post['username']}**")
-                            st.caption(str(post['created_at']))
+                            st.caption(format_to_ist(post['created_at']))
                         with h_col3:
                             if st.button("👤 View Profile", key=f"feed_view_{post['post_id']}"):
                                 st.session_state.view_user_id = post['user_id']
@@ -344,9 +360,10 @@ else:
                 if conn:
                     try:
                         cursor = conn.cursor()
+                        now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
                         cursor.execute(
-                            "INSERT INTO posts (user_id, caption, media_url) VALUES (%s, %s, %s)",
-                            (user['user_id'], caption_input, media_input)
+                            "INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (%s, %s, %s, %s)",
+                            (user['user_id'], caption_input, media_input, now_ist)
                         )
                         conn.commit()
                         st.success("Published successfully!")
@@ -493,7 +510,7 @@ else:
                             render_html_image(item['media_url'], width=350, height=350, circle=False)
                         st.write(f"❤️ **{item['likes']} likes**")
                         st.write(f"📝 {item['caption']}")
-                        st.caption(str(item['created_at']))
+                        st.caption(format_to_ist(item['created_at']))
 
     # ------------------ TAB 6: AI SUPPORT ------------------
     with app_tab_chatway:
