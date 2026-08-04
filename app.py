@@ -1370,7 +1370,7 @@ updateClock();
 components.html(live_clock_html, height=45)
 
 # --- REELS SECTION ---
-elif menu == "🎬 Reels":
+if menu == "🎬 Reels":
   st.markdown(
       '<p class="main-header">🎬 Community Reels</p>', unsafe_allow_html=True
   )
