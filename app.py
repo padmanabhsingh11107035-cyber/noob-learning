@@ -2,15 +2,16 @@ import streamlit as st
 import streamlit.components.v1 as components
 import mysql.connector
 import datetime
+import base64
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Instagram | NOOB LEARNING", 
-    page_icon="📸", 
+    page_title="NOOB LEARNING", 
+    page_icon="🎓", 
     layout="centered"
 )
 
-# --- INSTAGRAM CUSTOM CSS STYLING ---
+# --- CUSTOM CSS STYLING ---
 st.markdown("""
     <style>
     /* Hide Streamlit Chrome */
@@ -28,6 +29,7 @@ st.markdown("""
         display: flex;
         justify-content: center;
         align-items: center;
+        position: relative;
     }
     .profile-pic {
         width: 86px;
@@ -45,38 +47,6 @@ st.markdown("""
         object-fit: cover;
     }
 
-    /* Stories Circle Bar Styling */
-    .story-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-    }
-    .story-circle {
-        width: 62px;
-        height: 62px;
-        border-radius: 50%;
-        padding: 2px;
-        background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
-        cursor: pointer;
-    }
-    .story-img {
-        width: 100%;
-        height: 100%;
-        border-radius: 50%;
-        border: 2px solid white;
-        object-fit: cover;
-    }
-    .story-username {
-        font-size: 11px;
-        text-align: center;
-        margin-top: 4px;
-        color: #262626;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 65px;
-    }
-
     /* Profile Stats Text */
     .stat-number {
         font-weight: 700;
@@ -90,7 +60,7 @@ st.markdown("""
         text-align: center;
     }
 
-    /* Instagram Action Buttons */
+    /* Action Buttons */
     .stButton>button {
         border-radius: 8px;
         font-weight: 600;
@@ -132,8 +102,8 @@ def setup_database():
                 user_id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(100) UNIQUE NOT NULL,
                 password VARCHAR(255) NOT NULL,
-                bio VARCHAR(255) DEFAULT 'Here for a good time',
-                profile_pic VARCHAR(500) DEFAULT 'https://picsum.photos/200'
+                bio VARCHAR(255) DEFAULT 'Welcome to NOOB LEARNING!',
+                profile_pic LONGTEXT
             );
         """)
         cursor.execute("""
@@ -168,21 +138,27 @@ setup_database()
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# Helper function to get profile picture safely
 def get_user_pic(u_dict):
     if u_dict and isinstance(u_dict, dict) and "profile_pic" in u_dict and u_dict["profile_pic"]:
         return u_dict["profile_pic"]
-    return "https://picsum.photos/200"
+    return "https://via.placeholder.com/150"
 
 def get_user_bio(u_dict):
     if u_dict and isinstance(u_dict, dict) and "bio" in u_dict and u_dict["bio"]:
         return u_dict["bio"]
-    return "Here for a good time"
+    return "Welcome to NOOB LEARNING!"
+
+# Convert image file to base64 data URL
+def convert_file_to_base64(uploaded_file):
+    bytes_data = uploaded_file.getvalue()
+    base64_str = base64.b64encode(bytes_data).decode()
+    mime_type = uploaded_file.type
+    return f"data:{mime_type};base64,{base64_str}"
 
 # ================= AUTHENTICATION (LOGIN / SIGNUP) =================
 if not st.session_state.user:
-    st.markdown("<h2 style='text-align: center; font-family: sans-serif;'>📸 Instagram</h2>", unsafe_allow_html=True)
-    st.caption("Log in or create an account to start sharing.")
+    st.markdown("<h2 style='text-align: center; font-family: sans-serif;'>🎓 NOOB LEARNING</h2>", unsafe_allow_html=True)
+    st.caption("Log in or create an account to get started.")
 
     tab_login, tab_signup = st.tabs(["🔒 Log In", "📝 Sign Up"])
 
@@ -229,53 +205,27 @@ else:
     # TOP HEADER NAVIGATION
     nav_col1, nav_col2 = st.columns([5, 1])
     with nav_col1:
-        st.markdown("<h2 style='margin:0; font-family: sans-serif;'>Instagram</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='margin:0; font-family: sans-serif;'>NOOB LEARNING</h2>", unsafe_allow_html=True)
     with nav_col2:
         if st.button("Logout"):
             st.session_state.user = None
             st.rerun()
 
-    # APP TABS (NAVIGATION BAR AT BOTTOM/TOP)
+    # APP TABS
     app_tab_feed, app_tab_search, app_tab_create, app_tab_msg, app_tab_profile, app_tab_chatway = st.tabs(
         ["🏠 Feed", "🔍 Search", "➕ Create", "💬 Direct", "👤 Profile", "🤖 AI Support"]
     )
 
-    # ------------------ TAB 1: MAIN INSTAGRAM FEED ------------------
+    # ------------------ TAB 1: MAIN FEED ------------------
     with app_tab_feed:
-        # HORIZONTAL STORIES BAR
-        st.markdown("### Stories")
-        story_cols = st.columns(5)
-        user_avatar = get_user_pic(user)
-        
-        sample_stories = [
-            ("Your story", user_avatar),
-            ("super_santi", "https://picsum.photos/200?random=11"),
-            ("lil_wyatt", "https://picsum.photos/200?random=12"),
-            ("liam_beanz", "https://picsum.photos/200?random=13"),
-            ("sprinkles", "https://picsum.photos/200?random=14"),
-        ]
-
-        for idx, (s_name, s_img) in enumerate(sample_stories):
-            with story_cols[idx]:
-                st.markdown(f"""
-                    <div class="story-container">
-                        <div class="story-circle">
-                            <img class="story-img" src="{s_img}" />
-                        </div>
-                        <div class="story-username">{s_name}</div>
-                    </div>
-                """, unsafe_allow_html=True)
-
-        st.divider()
-
-        # FEED POSTS DISPLAY
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT posts.post_id, posts.caption, posts.media_url, posts.likes, posts.created_at, 
                        users.username, users.profile_pic
-                FROM posts JOIN users ON posts.user_id = users.user_id 
+                FROM posts 
+                JOIN users ON posts.user_id = users.user_id 
                 ORDER BY posts.created_at DESC
             """)
             feed_posts = cursor.fetchall()
@@ -283,43 +233,43 @@ else:
 
             if not feed_posts:
                 st.info("No posts yet! Be the first to share something in the '➕ Create' tab.")
-            
-            for post in feed_posts:
-                with st.container(border=True):
-                    # Post Header (User Avatar + Username)
-                    h_col1, h_col2 = st.columns([1, 6])
-                    with h_col1:
-                        pic_url = get_user_pic(post)
-                        st.markdown(f'<img src="{pic_url}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;">', unsafe_allow_html=True)
-                    with h_col2:
-                        st.markdown(f"**{post['username']}**")
+            else:
+                for post in feed_posts:
+                    with st.container(border=True):
+                        # Post Header
+                        h_col1, h_col2 = st.columns([1, 6])
+                        with h_col1:
+                            pic_url = get_user_pic(post)
+                            st.markdown(f'<img src="{pic_url}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;">', unsafe_allow_html=True)
+                        with h_col2:
+                            st.markdown(f"**{post['username']}**")
 
-                    # Post Media Image
-                    if post['media_url']:
-                        st.image(post['media_url'], use_container_width=True)
+                        # Post Media
+                        if post['media_url']:
+                            st.image(post['media_url'], use_container_width=True)
 
-                    # Action Bar (Like, Comment, Share)
-                    act_col1, act_col2, act_col3, act_col4 = st.columns([1, 1, 1, 5])
-                    with act_col1:
-                        if st.button("❤️", key=f"like_{post['post_id']}"):
-                            conn = get_db_connection()
-                            if conn:
-                                cursor = conn.cursor()
-                                cursor.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = %s", (post['post_id'],))
-                                conn.commit()
-                                conn.close()
-                                st.rerun()
-                    with act_col2:
-                        st.button("💬", key=f"comment_{post['post_id']}")
-                    with act_col3:
-                        st.button("✈️", key=f"share_{post['post_id']}")
+                        # Action Bar
+                        act_col1, act_col2, act_col3, act_col4 = st.columns([1, 1, 1, 5])
+                        with act_col1:
+                            if st.button("❤️", key=f"like_{post['post_id']}"):
+                                conn = get_db_connection()
+                                if conn:
+                                    cursor = conn.cursor()
+                                    cursor.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = %s", (post['post_id'],))
+                                    conn.commit()
+                                    conn.close()
+                                    st.rerun()
+                        with act_col2:
+                            st.button("💬", key=f"comment_{post['post_id']}")
+                        with act_col3:
+                            st.button("✈️", key=f"share_{post['post_id']}")
 
-                    # Likes & Caption
-                    st.markdown(f"**{post['likes']} likes**")
-                    st.markdown(f"**{post['username']}** {post['caption']}")
-                    st.caption(f"{post['created_at']}")
+                        # Likes & Caption
+                        st.markdown(f"**{post['likes']} likes**")
+                        st.markdown(f"**{post['username']}** {post['caption']}")
+                        st.caption(f"{post['created_at']}")
 
-    # ------------------ TAB 2: SEARCH & USERS ------------------
+    # ------------------ TAB 2: SEARCH ------------------
     with app_tab_search:
         st.subheader("🔍 Explore Users")
         search_query = st.text_input("Search username...", key="search_bar")
@@ -346,15 +296,15 @@ else:
                     with sc3:
                         st.button("View", key=f"user_view_{u['user_id']}")
 
-    # ------------------ TAB 3: CREATE NEW POST ------------------
+    # ------------------ TAB 3: CREATE POST ------------------
     with app_tab_create:
         st.subheader("📸 Create New Post")
-        img_url_input = st.text_input("Image URL (e.g. https://picsum.photos/600/600)")
+        img_url_input = st.text_input("Image or Video URL")
         caption_input = st.text_area("Write a caption...", height=100)
 
         if st.button("Share Post", use_container_width=True):
             if caption_input.strip():
-                final_img = img_url_input.strip() if img_url_input.strip() else "https://picsum.photos/600/600"
+                final_img = img_url_input.strip()
                 conn = get_db_connection()
                 if conn:
                     cursor = conn.cursor()
@@ -364,12 +314,12 @@ else:
                     )
                     conn.commit()
                     conn.close()
-                    st.success("Post published successfully!")
+                    st.success("Published successfully!")
                     st.rerun()
             else:
-                st.warning("Please enter a caption before sharing.")
+                st.warning("Please enter a caption.")
 
-    # ------------------ TAB 4: DIRECT MESSAGES (DM) ------------------
+    # ------------------ TAB 4: DIRECT MESSAGES ------------------
     with app_tab_msg:
         st.subheader("💬 Direct Messages")
         target_id = st.number_input("Enter User ID to chat with:", min_value=1, step=1, key="dm_target_id")
@@ -388,7 +338,7 @@ else:
 
                 st.write("---")
                 if not messages:
-                    st.info("No chat history yet. Send a message below!")
+                    st.info("No chat history yet.")
                 for m in messages:
                     if m['sender_id'] == user['user_id']:
                         st.chat_message("user").write(m['message_text'])
@@ -409,20 +359,15 @@ else:
                         conn.close()
                         st.rerun()
 
-    # ------------------ TAB 5: INSTAGRAM PROFILE PAGE ------------------
+    # ------------------ TAB 5: PROFILE & SETTINGS ------------------
     with app_tab_profile:
-        # Top Header Bar
-        top_col1, top_col2, top_col3 = st.columns([6, 1, 1])
+        top_col1, top_col2 = st.columns([6, 1])
         with top_col1:
-            st.markdown(f"### **{user['username']}** ∨")
-        with top_col2:
-            st.markdown("### ➕")
-        with top_col3:
-            st.markdown("### ☰")
+            st.markdown(f"### **{user['username']}**")
 
         st.write("")
 
-        # User's total posts count
+        # Posts count query
         user_posts_count = 0
         conn = get_db_connection()
         if conn:
@@ -431,8 +376,8 @@ else:
             user_posts_count = cursor.fetchone()[0]
             conn.close()
 
-        # Profile Header Section (Avatar + Stats)
-        p_col1, p_col2, p_col3, p_col4 = st.columns([2.5, 2, 2, 2])
+        # Profile Header
+        p_col1, p_col2 = st.columns([2.5, 6])
 
         with p_col1:
             prof_pic = get_user_pic(user)
@@ -448,56 +393,84 @@ else:
             st.markdown(f'<p class="stat-number">{user_posts_count}</p>', unsafe_allow_html=True)
             st.markdown('<p class="stat-label">posts</p>', unsafe_allow_html=True)
 
-        with p_col3:
-            st.markdown('<p class="stat-number">1,134</p>', unsafe_allow_html=True)
-            st.markdown('<p class="stat-label">followers</p>', unsafe_allow_html=True)
-
-        with p_col4:
-            st.markdown('<p class="stat-number">513</p>', unsafe_allow_html=True)
-            st.markdown('<p class="stat-label">following</p>', unsafe_allow_html=True)
-
         # Bio Section
         st.markdown(f"**{user['username']}**")
         st.markdown(f"{get_user_bio(user)}")
-        st.markdown(f"🔗 **{user['username']}**")
 
-        # Profile Action Buttons
-        b_col1, b_col2, b_col3 = st.columns([4, 4, 1])
-        with b_col1:
-            st.button("Edit profile", use_container_width=True)
-        with b_col2:
-            st.button("Share profile", use_container_width=True)
-        with b_col3:
-            st.button("👤+", use_container_width=True)
+        # PROFILE SETTINGS / PICTURE UPDATE ACCORDION
+        with st.expander("⚙️ Settings & Profile Picture (➕ Add / Change)"):
+            st.markdown("#### Update Profile Picture")
+            
+            # Choose Source Mode
+            photo_source = st.radio(
+                "Select image source:", 
+                ["📁 Gallery / File Upload", "📷 Camera Capture", "🔗 Image URL"],
+                horizontal=True
+            )
+            
+            new_pic_data = None
+
+            if photo_source == "📁 Gallery / File Upload":
+                uploaded_file = st.file_uploader("Choose an image from gallery...", type=["png", "jpg", "jpeg", "webp"])
+                if uploaded_file:
+                    new_pic_data = convert_file_to_base64(uploaded_file)
+
+            elif photo_source == "📷 Camera Capture":
+                camera_file = st.camera_input("Take a photo")
+                if camera_file:
+                    new_pic_data = convert_file_to_base64(camera_file)
+
+            elif photo_source == "🔗 Image URL":
+                url_input = st.text_input("Enter image direct link:")
+                if url_input.strip():
+                    new_pic_data = url_input.strip()
+
+            # Save Profile Picture
+            if st.button("➕ Save Profile Picture", use_container_width=True):
+                if new_pic_data:
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (new_pic_data, user['user_id']))
+                        conn.commit()
+                        conn.close()
+                        st.session_state.user['profile_pic'] = new_pic_data
+                        st.success("Profile picture updated!")
+                        st.rerun()
+                else:
+                    st.warning("Please upload a photo, take a picture, or enter a valid URL first.")
+
+            st.divider()
+            
+            # Edit Bio Option
+            st.markdown("#### Edit Bio")
+            new_bio = st.text_input("New Bio Text", value=get_user_bio(user))
+            if st.button("Save Bio", use_container_width=True):
+                conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE users SET bio = %s WHERE user_id = %s", (new_bio, user['user_id']))
+                    conn.commit()
+                    conn.close()
+                    st.session_state.user['bio'] = new_bio
+                    st.success("Bio updated successfully!")
+                    st.rerun()
 
         st.divider()
 
-        # Grid Tabs (Posts / Reels / Repost / Tagged)
-        tab_grid, tab_reels, tab_repost, tab_tagged = st.tabs(["田", "🎬", "🔄", "👤"])
+        # Real User Grid
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT media_url FROM posts WHERE user_id = %s ORDER BY created_at DESC", (user['user_id'],))
+            user_media = cursor.fetchall()
+            conn.close()
 
-        with tab_grid:
-            # Fetch User's Own Posts for the 3-Column Grid
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT media_url FROM posts WHERE user_id = %s ORDER BY created_at DESC", (user['user_id'],))
-                user_media = cursor.fetchall()
-                conn.close()
-
-                grid_images = [item['media_url'] for item in user_media if item['media_url']]
-                
-                # Fallback placeholder images if the user hasn't posted anything yet
-                if not grid_images:
-                    grid_images = [
-                        "https://picsum.photos/300/300?random=1",
-                        "https://picsum.photos/300/300?random=2",
-                        "https://picsum.photos/300/300?random=3",
-                        "https://picsum.photos/300/300?random=4",
-                        "https://picsum.photos/300/300?random=5",
-                        "https://picsum.photos/300/300?random=6"
-                    ]
-
-                # Render 3-Column Image Grid
+            grid_images = [item['media_url'] for item in user_media if item['media_url']]
+            
+            if not grid_images:
+                st.info("No posts yet.")
+            else:
                 for i in range(0, len(grid_images), 3):
                     g_col1, g_col2, g_col3 = st.columns(3)
                     with g_col1:
@@ -510,10 +483,9 @@ else:
                         if i + 2 < len(grid_images):
                             st.image(grid_images[i+2], use_container_width=True)
 
-    # ------------------ TAB 6: CHATWAY AI SUPPORT (RIGHT-SIDE DEDICATED TAB) ------------------
+    # ------------------ TAB 6: AI SUPPORT ------------------
     with app_tab_chatway:
         st.subheader("🤖 Saraah AI Support Assistant")
-        st.caption("Ask questions or get instant help below.")
         chatway_code = """
         <iframe 
             src="https://chatway.app/widget/UbvqSsHWYpja" 
