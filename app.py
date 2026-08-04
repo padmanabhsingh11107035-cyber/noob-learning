@@ -10,19 +10,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- CHATWAY SIDEBAR INTEGRATION ---
-with st.sidebar:
-    st.subheader("🤖 Saraah AI Assistant")
-    chatway_code = """
-    <iframe 
-        src="https://chatway.app/widget/UbvqSsHWYpja" 
-        width="100%" 
-        height="450" 
-        style="border:none; border-radius:12px;">
-    </iframe>
-    """
-    components.html(chatway_code, height=470)
-
 # --- INSTAGRAM CUSTOM CSS STYLING ---
 st.markdown("""
     <style>
@@ -181,6 +168,17 @@ setup_database()
 if "user" not in st.session_state:
     st.session_state.user = None
 
+# Helper function to get profile picture safely
+def get_user_pic(u_dict):
+    if u_dict and isinstance(u_dict, dict) and "profile_pic" in u_dict and u_dict["profile_pic"]:
+        return u_dict["profile_pic"]
+    return "https://picsum.photos/200"
+
+def get_user_bio(u_dict):
+    if u_dict and isinstance(u_dict, dict) and "bio" in u_dict and u_dict["bio"]:
+        return u_dict["bio"]
+    return "Here for a good time"
+
 # ================= AUTHENTICATION (LOGIN / SIGNUP) =================
 if not st.session_state.user:
     st.markdown("<h2 style='text-align: center; font-family: sans-serif;'>📸 Instagram</h2>", unsafe_allow_html=True)
@@ -238,8 +236,8 @@ else:
             st.rerun()
 
     # APP TABS (NAVIGATION BAR AT BOTTOM/TOP)
-    app_tab_feed, app_tab_search, app_tab_create, app_tab_msg, app_tab_profile = st.tabs(
-        ["🏠 Feed", "🔍 Search", "➕ Create", "💬 Direct", "👤 Profile"]
+    app_tab_feed, app_tab_search, app_tab_create, app_tab_msg, app_tab_profile, app_tab_chatway = st.tabs(
+        ["🏠 Feed", "🔍 Search", "➕ Create", "💬 Direct", "👤 Profile", "🤖 AI Support"]
     )
 
     # ------------------ TAB 1: MAIN INSTAGRAM FEED ------------------
@@ -247,8 +245,10 @@ else:
         # HORIZONTAL STORIES BAR
         st.markdown("### Stories")
         story_cols = st.columns(5)
+        user_avatar = get_user_pic(user)
+        
         sample_stories = [
-            ("Your story", user['profile_pic']),
+            ("Your story", user_avatar),
             ("super_santi", "https://picsum.photos/200?random=11"),
             ("lil_wyatt", "https://picsum.photos/200?random=12"),
             ("liam_beanz", "https://picsum.photos/200?random=13"),
@@ -289,7 +289,7 @@ else:
                     # Post Header (User Avatar + Username)
                     h_col1, h_col2 = st.columns([1, 6])
                     with h_col1:
-                        pic_url = post["profile_pic"]
+                        pic_url = get_user_pic(post)
                         st.markdown(f'<img src="{pic_url}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;">', unsafe_allow_html=True)
                     with h_col2:
                         st.markdown(f"**{post['username']}**")
@@ -338,11 +338,11 @@ else:
                 with st.container(border=True):
                     sc1, sc2, sc3 = st.columns([1, 4, 2])
                     with sc1:
-                        user_pic = u['profile_pic']
+                        user_pic = get_user_pic(u)
                         st.markdown(f'<img src="{user_pic}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">', unsafe_allow_html=True)
                     with sc2:
                         st.markdown(f"**@{u['username']}** `(# {u['user_id']})`")
-                        st.caption(u['bio'])
+                        st.caption(get_user_bio(u))
                     with sc3:
                         st.button("View", key=f"user_view_{u['user_id']}")
 
@@ -435,7 +435,7 @@ else:
         p_col1, p_col2, p_col3, p_col4 = st.columns([2.5, 2, 2, 2])
 
         with p_col1:
-            prof_pic = user['profile_pic']
+            prof_pic = get_user_pic(user)
             st.markdown(f"""
                 <div class="profile-pic-container">
                     <div class="profile-pic">
@@ -458,7 +458,7 @@ else:
 
         # Bio Section
         st.markdown(f"**{user['username']}**")
-        st.markdown(f"{user['bio']}")
+        st.markdown(f"{get_user_bio(user)}")
         st.markdown(f"🔗 **{user['username']}**")
 
         # Profile Action Buttons
@@ -509,3 +509,17 @@ else:
                     with g_col3:
                         if i + 2 < len(grid_images):
                             st.image(grid_images[i+2], use_container_width=True)
+
+    # ------------------ TAB 6: CHATWAY AI SUPPORT (RIGHT-SIDE DEDICATED TAB) ------------------
+    with app_tab_chatway:
+        st.subheader("🤖 Saraah AI Support Assistant")
+        st.caption("Ask questions or get instant help below.")
+        chatway_code = """
+        <iframe 
+            src="https://chatway.app/widget/UbvqSsHWYpja" 
+            width="100%" 
+            height="550" 
+            style="border:none; border-radius:12px;">
+        </iframe>
+        """
+        components.html(chatway_code, height=570)
