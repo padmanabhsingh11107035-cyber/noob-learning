@@ -116,13 +116,12 @@ def setup_database():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
+        # 1. Create base tables if they don't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(100) UNIQUE NOT NULL,
-                password VARCHAR(255) NOT NULL,
-                bio VARCHAR(255) DEFAULT 'Welcome to NOOB LEARNING!',
-                profile_pic LONGTEXT
+                password VARCHAR(255) NOT NULL
             );
         """)
         cursor.execute("""
@@ -148,6 +147,19 @@ def setup_database():
             );
         """)
         conn.commit()
+
+        # 2. Add missing columns to existing users table if absent
+        for alter_query in [
+            "ALTER TABLE users ADD COLUMN bio VARCHAR(255) DEFAULT 'Welcome to NOOB LEARNING!'",
+            "ALTER TABLE users ADD COLUMN profile_pic LONGTEXT"
+        ]:
+            try:
+                cursor.execute(alter_query)
+                conn.commit()
+            except mysql.connector.Error:
+                # Ignores error if column already exists
+                pass
+
         conn.close()
 
 # Run DB Setup
