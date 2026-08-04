@@ -17,8 +17,18 @@ chatway_code = """
 """
 
 # Render in the sidebar so it's always loaded
+# --- CHATWAY WIDGET INTEGRATION ---
 with st.sidebar:
-    components.html(chatway_code, height=500, scrolling=False)
+    st.subheader("🤖 Saraah AI Assistant")
+    chatway_code = """
+    <iframe 
+        src="https://chatway.app/widget/UbvqSsHWYpja" 
+        width="100%" 
+        height="500" 
+        style="border:none; border-radius:10px;">
+    </iframe>
+    """
+    components.html(chatway_code, height=520)
 
 # --- AIVEN DATABASE CONFIG ---
 DB_CONFIG = {
