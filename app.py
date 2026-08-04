@@ -1368,6 +1368,86 @@ updateClock();
 
 # Render the component in your app layout
 components.html(live_clock_html, height=45)
+
+# --- REELS SECTION ---
+elif menu == "🎬 Reels":
+  st.markdown(
+      '<p class="main-header">🎬 Community Reels</p>', unsafe_allow_html=True
+  )
+  st.write("Watch short video clips shared by other users or upload your own!")
+
+  # Upload New Reel Form
+  with st.expander("📤 Upload a New Reel"):
+    with st.form("reel_form", clear_on_submit=True):
+      reel_caption = st.text_input("Caption / Title")
+      reel_url = st.text_input(
+          "Video Link (Direct MP4 URL or YouTube/Shorts link)"
+      )
+      submitted_reel = st.form_submit_button("Publish Reel")
+
+      if submitted_reel and reel_caption.strip() and reel_url.strip():
+        try:
+          mydb = get_db_connection()
+          mycursor = mydb.cursor()
+          mycursor.execute(
+              "INSERT INTO reels (username, caption, video_url, timestamp)"
+              " VALUES (%s, %s, %s, %s)",
+              (
+                  st.session_state.username,
+                  reel_caption,
+                  reel_url,
+                  get_current_time(),
+              ),
+          )
+          mydb.commit()
+          mycursor.close()
+          mydb.close()
+          st.success("Reel uploaded successfully!")
+          st.rerun()
+        except Exception as e:
+          st.error(f"Error uploading reel: {e}")
+
+  st.divider()
+
+  # Fetch and Display Reels Randomly
+  try:
+    mydb = get_db_connection()
+    mycursor = mydb.cursor(dictionary=True)
+    # ORDER BY RAND() fetches them completely randomly for each user
+    mycursor.execute("SELECT * FROM reels ORDER BY RAND()")
+    reels = mycursor.fetchall()
+    mycursor.close()
+    mydb.close()
+
+    if reels:
+      # Center column container to give it a vertical "reel/shorts" feed look
+      col1, col2, col3 = st.columns([1, 2, 1])
+      with col2:
+        for r in reels:
+          st.markdown(
+              f"""
+                    <div class="card" style="text-align: center;">
+                        <h4 style="margin-bottom: 5px;">@{r['username']}</h4>
+                        <p style="color: #bbb; font-size: 14px;">{r['caption']}</p>
+                    </div>
+                    """,
+              unsafe_allow_html=True,
+          )
+
+          # Render video player
+          try:
+            st.video(r["video_url"])
+          except Exception:
+            st.error(
+                "Could not load video. Make sure the link is a valid direct"
+                " video source or YouTube link."
+            )
+
+          st.markdown("---")
+    else:
+      st.info("No reels uploaded yet. Be the first to share a short video clip!")
+  except Exception as e:
+    st.error(f"Could not load reels feed: {e}")
 # ==============================================================================
 # END OF FILE (app.py)
 # ==============================================================================
