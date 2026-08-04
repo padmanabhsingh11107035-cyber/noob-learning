@@ -14,11 +14,11 @@ st.set_page_config(
 
 # --- AIVEN DATABASE CONFIGURATION ---
 DB_CONFIG = {
-    "host": "mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
-    "port": 21354,
-    "user": "avnadmin",
-    "password": "AVNS_iN1XY9WAsRFlUWVhM6k",
-    "database": "defaultdb"
+    "host": st.secrets.get("DB_HOST", "mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com"),
+    "port": int(st.secrets.get("DB_PORT", 21354)),
+    "user": st.secrets.get("DB_USER", "avnadmin"),
+    "password": st.secrets.get("DB_PASSWORD", "AVNS_iN1XY9WAsRFlUWVhM6k"),
+    "database": st.secrets.get("DB_NAME", "defaultdb")
 }
 
 def get_db_connection():
@@ -74,6 +74,25 @@ def setup_database():
                     UNIQUE KEY unique_follow (follower_id, following_id),
                     FOREIGN KEY (follower_id) REFERENCES users(user_id) ON DELETE CASCADE,
                     FOREIGN KEY (following_id) REFERENCES users(user_id) ON DELETE CASCADE
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_groups (
+                    group_id INT AUTO_INCREMENT PRIMARY KEY,
+                    group_name VARCHAR(100) NOT NULL,
+                    created_by INT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS group_messages (
+                    g_message_id INT AUTO_INCREMENT PRIMARY KEY,
+                    group_id INT NOT NULL,
+                    sender_id INT NOT NULL,
+                    message_text TEXT NOT NULL,
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (group_id) REFERENCES chat_groups(group_id) ON DELETE CASCADE,
+                    FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE
                 );
             """)
             conn.commit()
@@ -214,6 +233,148 @@ def toggle_follow(follower_id, following_id):
             st.error(f"Follow action failed: {e}")
         finally:
             conn.close()
+
+def render_enhanced_direct_messages(user):
+    """ Renders upgraded private & group messaging inside Tab 5 """
+    chat_type = st.radio("Select Chat Mode:", ["🔒 Private Direct Chat", "👥 Group Chat"], horizontal=True)
+
+    # ------------------ 1. PRIVATE DIRECT CHAT ------------------
+    if chat_type == "🔒 Private Direct Chat":
+        st.write("### Private Chat")
+        target_id = st.number_input("Enter User ID to chat with:", min_value=1, step=1, key="enhanced_dm_target_id")
+        
+        if target_id:
+            conn = get_db_connection()
+            if conn:
+                try:
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("SELECT username FROM users WHERE user_id = %s", (target_id,))
+                    target_user = cursor.fetchone()
+
+                    if not target_user:
+                        st.warning(f"No user found with User ID: {target_id}")
+                    else:
+                        st.info(f"Chatting with **@{target_user['username']}** (ID: `{target_id}`)")
+
+                        cursor.execute("""
+                            SELECT m.sender_id, m.message_text, m.sent_at, u.username 
+                            FROM messages m
+                            JOIN users u ON m.sender_id = u.user_id
+                            WHERE (m.sender_id = %s AND m.receiver_id = %s) 
+                               OR (m.sender_id = %s AND m.receiver_id = %s)
+                            ORDER BY m.sent_at ASC
+                        """, (user['user_id'], target_id, target_id, user['user_id']))
+                        messages = cursor.fetchall()
+
+                        st.divider()
+                        if not messages:
+                            st.caption("No chat history yet. Say hi!")
+                        else:
+                            for m in messages:
+                                is_me = (m['sender_id'] == user['user_id'])
+                                align = "user" if is_me else "assistant"
+                                formatted_time = format_to_ist(m['sent_at'])
+                                
+                                with st.chat_message(align):
+                                    st.markdown(f"**@{m['username']}** `(ID: {m['sender_id']})` • *{formatted_time}*")
+                                    st.write(m['message_text'])
+
+                        with st.form(key=f"dm_form_{target_id}", clear_on_submit=True):
+                            dm_input = st.text_input("Type your private message...")
+                            submit_dm = st.form_submit_button("Send Private Message", use_container_width=True)
+                            
+                            if submit_dm and dm_input.strip():
+                                c_send = conn.cursor()
+                                now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
+                                c_send.execute(
+                                    "INSERT INTO messages (sender_id, receiver_id, message_text, sent_at) VALUES (%s, %s, %s, %s)",
+                                    (user['user_id'], target_id, dm_input, now_ist)
+                                )
+                                conn.commit()
+                                st.rerun()
+                except Exception as e:
+                    st.error(f"Chat Error: {e}")
+                finally:
+                    conn.close()
+
+    # ------------------ 2. GROUP CHAT ------------------
+    else:
+        st.write("### Group Chat")
+        
+        with st.expander("➕ Create New Group"):
+            new_g_name = st.text_input("Enter Group Name:", key="new_group_name_input")
+            if st.button("Create Group", use_container_width=True):
+                if new_g_name.strip():
+                    conn = get_db_connection()
+                    if conn:
+                        try:
+                            cursor = conn.cursor()
+                            cursor.execute(
+                                "INSERT INTO chat_groups (group_name, created_by) VALUES (%s, %s)",
+                                (new_g_name.strip(), user['user_id'])
+                            )
+                            conn.commit()
+                            st.success(f"Group '{new_g_name}' created!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to create group: {e}")
+                        finally:
+                            conn.close()
+
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT * FROM chat_groups ORDER BY group_id DESC")
+                groups = cursor.fetchall()
+
+                if not groups:
+                    st.info("No groups created yet. Create the first one above!")
+                else:
+                    group_options = {f"#{g['group_id']} - {g['group_name']}": g['group_id'] for g in groups}
+                    selected_group_str = st.selectbox("Select Group:", list(group_options.keys()))
+                    selected_group_id = group_options[selected_group_str]
+
+                    st.divider()
+
+                    cursor.execute("""
+                        SELECT gm.sender_id, gm.message_text, gm.sent_at, u.username
+                        FROM group_messages gm
+                        JOIN users u ON gm.sender_id = u.user_id
+                        WHERE gm.group_id = %s
+                        ORDER BY gm.sent_at ASC
+                    """, (selected_group_id,))
+                    g_messages = cursor.fetchall()
+
+                    if not g_messages:
+                        st.caption("No group messages yet. Start the conversation!")
+                    else:
+                        for gm in g_messages:
+                            is_me = (gm['sender_id'] == user['user_id'])
+                            align = "user" if is_me else "assistant"
+                            formatted_time = format_to_ist(gm['sent_at'])
+                            
+                            with st.chat_message(align):
+                                st.markdown(f"**@{gm['username']}** `(ID: {gm['sender_id']})` • *{formatted_time}*")
+                                st.write(gm['message_text'])
+
+                    with st.form(key=f"group_form_{selected_group_id}", clear_on_submit=True):
+                        g_msg_input = st.text_input("Type message to group...")
+                        submit_g_msg = st.form_submit_button("Send to Group", use_container_width=True)
+
+                        if submit_g_msg and g_msg_input.strip():
+                            c_g_send = conn.cursor()
+                            now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
+                            c_g_send.execute(
+                                "INSERT INTO group_messages (group_id, sender_id, message_text, sent_at) VALUES (%s, %s, %s, %s)",
+                                (selected_group_id, user['user_id'], g_msg_input, now_ist)
+                            )
+                            conn.commit()
+                            st.rerun()
+            except Exception as e:
+                st.error(f"Group Chat Error: {e}")
+            finally:
+                conn.close()
 
 # Dialog for Top Left Profile Icon Click
 @st.dialog("📷 Update Profile Picture")
@@ -537,53 +698,7 @@ else:
 
     # ------------------ TAB 5: DIRECT MESSAGES ------------------
     with app_tab_msg:
-        render_enhanced_direct_messages(user) #
-        st.subheader("💬 Direct Messages")
-        target_id = st.number_input("Enter User ID to chat with:", min_value=1, step=1, key="dm_target_id")
-        
-        if target_id:
-            conn = get_db_connection()
-            if conn:
-                try:
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("""
-                        SELECT sender_id, message_text, sent_at FROM messages
-                        WHERE (sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s)
-                        ORDER BY sent_at ASC
-                    """, (user['user_id'], target_id, target_id, user['user_id']))
-                    messages = cursor.fetchall()
-                except Exception as e:
-                    st.error(f"Chat load error: {e}")
-                    messages = []
-                finally:
-                    conn.close()
-
-                st.divider()
-                if not messages:
-                    st.info("No chat history yet.")
-                for m in messages:
-                    if m['sender_id'] == user['user_id']:
-                        st.chat_message("user").write(m['message_text'])
-                    else:
-                        st.chat_message("assistant").write(m['message_text'])
-
-            msg_input = st.text_input("Type a message...", key="chat_dm_input")
-            if st.button("Send", use_container_width=True):
-                if msg_input.strip():
-                    conn = get_db_connection()
-                    if conn:
-                        try:
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                "INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, %s)",
-                                (user['user_id'], target_id, msg_input)
-                            )
-                            conn.commit()
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Send failed: {e}")
-                        finally:
-                            conn.close()
+        render_enhanced_direct_messages(user)
 
     # ------------------ TAB 6: PROFILE & SETTINGS ------------------
     with app_tab_profile:
@@ -718,375 +833,3 @@ else:
         </iframe>
         """
         components.html(chatway_code, height=570)
-# =========================================================
-# ENHANCED CHAT SYSTEM (PRIVATE & GROUP CHATS WITH HISTORY)
-# Append this code at the very end of app.py
-# =========================================================
-
-def setup_group_chat_tables():
-    """ Creates group and group membership tables if they don't exist """
-    conn = get_db_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            # Groups Table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_groups (
-                    group_id INT AUTO_INCREMENT PRIMARY KEY,
-                    group_name VARCHAR(100) NOT NULL,
-                    created_by INT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            # Group Messages Table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS group_messages (
-                    g_message_id INT AUTO_INCREMENT PRIMARY KEY,
-                    group_id INT NOT NULL,
-                    sender_id INT NOT NULL,
-                    message_text TEXT NOT NULL,
-                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (group_id) REFERENCES chat_groups(group_id) ON DELETE CASCADE,
-                    FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE
-                );
-            """)
-            conn.commit()
-        except Exception as e:
-            st.error(f"Group DB Setup Error: {e}")
-        finally:
-            conn.close()
-
-# Initialize new tables
-setup_group_chat_tables()
-
-def render_enhanced_direct_messages(user):
-    """ Call this inside Tab 5 for upgraded private & group messaging """
-    st.subheader("💬 Messaging Center")
-
-    chat_type = st.radio("Select Chat Mode:", ["🔒 Private Direct Chat", "👥 Group Chat"], horizontal=True)
-
-    # ------------------ 1. PRIVATE DIRECT CHAT ------------------
-    if chat_type == "🔒 Private Direct Chat":
-        st.write("### Private Chat")
-        target_id = st.number_input("Enter User ID to chat with:", min_value=1, step=1, key="enhanced_dm_target_id")
-        
-        if target_id:
-            conn = get_db_connection()
-            if conn:
-                try:
-                    cursor = conn.cursor(dictionary=True)
-                    # Fetch receiver details
-                    cursor.execute("SELECT username FROM users WHERE user_id = %s", (target_id,))
-                    target_user = cursor.fetchone()
-
-                    if not target_user:
-                        st.warning(f"No user found with User ID: {target_id}")
-                    else:
-                        st.info(f"Chatting with **@{target_user['username']}** (ID: `{target_id}`)")
-
-                        # Fetch chat history with user info and timestamp
-                        cursor.execute("""
-                            SELECT m.sender_id, m.message_text, m.sent_at, u.username 
-                            FROM messages m
-                            JOIN users u ON m.sender_id = u.user_id
-                            WHERE (m.sender_id = %s AND m.receiver_id = %s) 
-                               OR (m.sender_id = %s AND m.receiver_id = %s)
-                            ORDER BY m.sent_at ASC
-                        """, (user['user_id'], target_id, target_id, user['user_id']))
-                        messages = cursor.fetchall()
-
-                        st.divider()
-                        if not messages:
-                            st.caption("No chat history yet. Say hi!")
-                        else:
-                            for m in messages:
-                                is_me = (m['sender_id'] == user['user_id'])
-                                align = "user" if is_me else "assistant"
-                                formatted_time = format_to_ist(m['sent_at'])
-                                
-                                with st.chat_message(align):
-                                    st.markdown(f"**@{m['username']}** `(ID: {m['sender_id']})` • *{formatted_time}*")
-                                    st.write(m['message_text'])
-
-                        # Message Input
-                        with st.form(key=f"dm_form_{target_id}", clear_on_submit=True):
-                            dm_input = st.text_input("Type your private message...")
-                            submit_dm = st.form_submit_button("Send Private Message", use_container_width=True)
-                            
-                            if submit_dm and dm_input.strip():
-                                c_send = conn.cursor()
-                                now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
-                                c_send.execute(
-                                    "INSERT INTO messages (sender_id, receiver_id, message_text, sent_at) VALUES (%s, %s, %s, %s)",
-                                    (user['user_id'], target_id, dm_input, now_ist)
-                                )
-                                conn.commit()
-                                st.rerun()
-                except Exception as e:
-                    st.error(f"Chat Error: {e}")
-                finally:
-                    conn.close()
-
-    # ------------------ 2. GROUP CHAT ------------------
-    else:
-        st.write("### Group Chat")
-        
-        # Option to create a new group
-        with st.expander("➕ Create New Group"):
-            new_g_name = st.text_input("Enter Group Name:", key="new_group_name_input")
-            if st.button("Create Group", use_container_width=True):
-                if new_g_name.strip():
-                    conn = get_db_connection()
-                    if conn:
-                        try:
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                "INSERT INTO chat_groups (group_name, created_by) VALUES (%s, %s)",
-                                (new_g_name.strip(), user['user_id'])
-                            )
-                            conn.commit()
-                            st.success(f"Group '{new_g_name}' created!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to create group: {e}")
-                        finally:
-                            conn.close()
-
-        # Fetch existing groups
-        conn = get_db_connection()
-        if conn:
-            try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM chat_groups ORDER BY group_id DESC")
-                groups = cursor.fetchall()
-
-                if not groups:
-                    st.info("No groups created yet. Create the first one above!")
-                else:
-                    group_options = {f"#{g['group_id']} - {g['group_name']}": g['group_id'] for g in groups}
-                    selected_group_str = st.selectbox("Select Group:", list(group_options.keys()))
-                    selected_group_id = group_options[selected_group_str]
-
-                    st.divider()
-
-                    # Fetch group messages with user info and timestamps
-                    cursor.execute("""
-                        SELECT gm.sender_id, gm.message_text, gm.sent_at, u.username
-                        FROM group_messages gm
-                        JOIN users u ON gm.sender_id = u.user_id
-                        WHERE gm.group_id = %s
-                        ORDER BY gm.sent_at ASC
-                    """, (selected_group_id,))
-                    g_messages = cursor.fetchall()
-
-                    if not g_messages:
-                        st.caption("No group messages yet. Start the conversation!")
-                    else:
-                        for gm in g_messages:
-                            is_me = (gm['sender_id'] == user['user_id'])
-                            align = "user" if is_me else "assistant"
-                            formatted_time = format_to_ist(gm['sent_at'])
-                            
-                            with st.chat_message(align):
-                                st.markdown(f"**@{gm['username']}** `(ID: {gm['sender_id']})` • *{formatted_time}*")
-                                st.write(gm['message_text'])
-
-                    # Group Message Input Form
-                    with st.form(key=f"group_form_{selected_group_id}", clear_on_submit=True):
-                        g_msg_input = st.text_input("Type message to group...")
-                        submit_g_msg = st.form_submit_button("Send to Group", use_container_width=True)
-
-                        if submit_g_msg and g_msg_input.strip():
-                            c_g_send = conn.cursor()
-                            now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
-                            c_g_send.execute(
-                                "INSERT INTO group_messages (group_id, sender_id, message_text, sent_at) VALUES (%s, %s, %s, %s)",
-                                (selected_group_id, user['user_id'], g_msg_input, now_ist)
-                            )
-                            conn.commit()
-                            st.rerun()
-            except Exception as e:
-                st.error(f"Group Chat Error: {e}")
-            finally:
-                conn.close()
-# =========================================================
-# ENHANCED CHAT SYSTEM (PRIVATE & GROUP CHATS WITH HISTORY)
-# =========================================================
-
-def setup_group_chat_tables():
-    """ Creates group and group membership tables if they don't exist """
-    conn = get_db_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_groups (
-                    group_id INT AUTO_INCREMENT PRIMARY KEY,
-                    group_name VARCHAR(100) NOT NULL,
-                    created_by INT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS group_messages (
-                    g_message_id INT AUTO_INCREMENT PRIMARY KEY,
-                    group_id INT NOT NULL,
-                    sender_id INT NOT NULL,
-                    message_text TEXT NOT NULL,
-                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (group_id) REFERENCES chat_groups(group_id) ON DELETE CASCADE,
-                    FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE
-                );
-            """)
-            conn.commit()
-        except Exception as e:
-            st.error(f"Group DB Setup Error: {e}")
-        finally:
-            conn.close()
-
-# Initialize new tables
-setup_group_chat_tables()
-
-def render_enhanced_direct_messages(user):
-    """ Renders upgraded private & group messaging inside Tab 5 """
-    st.subheader("💬 Messaging Center")
-
-    chat_type = st.radio("Select Chat Mode:", ["🔒 Private Direct Chat", "👥 Group Chat"], horizontal=True)
-
-    # ------------------ 1. PRIVATE DIRECT CHAT ------------------
-    if chat_type == "🔒 Private Direct Chat":
-        st.write("### Private Chat")
-        target_id = st.number_input("Enter User ID to chat with:", min_value=1, step=1, key="enhanced_dm_target_id")
-        
-        if target_id:
-            conn = get_db_connection()
-            if conn:
-                try:
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("SELECT username FROM users WHERE user_id = %s", (target_id,))
-                    target_user = cursor.fetchone()
-
-                    if not target_user:
-                        st.warning(f"No user found with User ID: {target_id}")
-                    else:
-                        st.info(f"Chatting with **@{target_user['username']}** (ID: `{target_id}`)")
-
-                        cursor.execute("""
-                            SELECT m.sender_id, m.message_text, m.sent_at, u.username 
-                            FROM messages m
-                            JOIN users u ON m.sender_id = u.user_id
-                            WHERE (m.sender_id = %s AND m.receiver_id = %s) 
-                               OR (m.sender_id = %s AND m.receiver_id = %s)
-                            ORDER BY m.sent_at ASC
-                        """, (user['user_id'], target_id, target_id, user['user_id']))
-                        messages = cursor.fetchall()
-
-                        st.divider()
-                        if not messages:
-                            st.caption("No chat history yet. Say hi!")
-                        else:
-                            for m in messages:
-                                is_me = (m['sender_id'] == user['user_id'])
-                                align = "user" if is_me else "assistant"
-                                formatted_time = format_to_ist(m['sent_at'])
-                                
-                                with st.chat_message(align):
-                                    st.markdown(f"**@{m['username']}** `(ID: {m['sender_id']})` • *{formatted_time}*")
-                                    st.write(m['message_text'])
-
-                        with st.form(key=f"dm_form_{target_id}", clear_on_submit=True):
-                            dm_input = st.text_input("Type your private message...")
-                            submit_dm = st.form_submit_button("Send Private Message", use_container_width=True)
-                            
-                            if submit_dm and dm_input.strip():
-                                c_send = conn.cursor()
-                                now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
-                                c_send.execute(
-                                    "INSERT INTO messages (sender_id, receiver_id, message_text, sent_at) VALUES (%s, %s, %s, %s)",
-                                    (user['user_id'], target_id, dm_input, now_ist)
-                                )
-                                conn.commit()
-                                st.rerun()
-                except Exception as e:
-                    st.error(f"Chat Error: {e}")
-                finally:
-                    conn.close()
-
-    # ------------------ 2. GROUP CHAT ------------------
-    else:
-        st.write("### Group Chat")
-        
-        with st.expander("➕ Create New Group"):
-            new_g_name = st.text_input("Enter Group Name:", key="new_group_name_input")
-            if st.button("Create Group", use_container_width=True):
-                if new_g_name.strip():
-                    conn = get_db_connection()
-                    if conn:
-                        try:
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                "INSERT INTO chat_groups (group_name, created_by) VALUES (%s, %s)",
-                                (new_g_name.strip(), user['user_id'])
-                            )
-                            conn.commit()
-                            st.success(f"Group '{new_g_name}' created!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to create group: {e}")
-                        finally:
-                            conn.close()
-
-        conn = get_db_connection()
-        if conn:
-            try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM chat_groups ORDER BY group_id DESC")
-                groups = cursor.fetchall()
-
-                if not groups:
-                    st.info("No groups created yet. Create the first one above!")
-                else:
-                    group_options = {f"#{g['group_id']} - {g['group_name']}": g['group_id'] for g in groups}
-                    selected_group_str = st.selectbox("Select Group:", list(group_options.keys()))
-                    selected_group_id = group_options[selected_group_str]
-
-                    st.divider()
-
-                    cursor.execute("""
-                        SELECT gm.sender_id, gm.message_text, gm.sent_at, u.username
-                        FROM group_messages gm
-                        JOIN users u ON gm.sender_id = u.user_id
-                        WHERE gm.group_id = %s
-                        ORDER BY gm.sent_at ASC
-                    """, (selected_group_id,))
-                    g_messages = cursor.fetchall()
-
-                    if not g_messages:
-                        st.caption("No group messages yet. Start the conversation!")
-                    else:
-                        for gm in g_messages:
-                            is_me = (gm['sender_id'] == user['user_id'])
-                            align = "user" if is_me else "assistant"
-                            formatted_time = format_to_ist(gm['sent_at'])
-                            
-                            with st.chat_message(align):
-                                st.markdown(f"**@{gm['username']}** `(ID: {gm['sender_id']})` • *{formatted_time}*")
-                                st.write(gm['message_text'])
-
-                    with st.form(key=f"group_form_{selected_group_id}", clear_on_submit=True):
-                        g_msg_input = st.text_input("Type message to group...")
-                        submit_g_msg = st.form_submit_button("Send to Group", use_container_width=True)
-
-                        if submit_g_msg and g_msg_input.strip():
-                            c_g_send = conn.cursor()
-                            now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
-                            c_g_send.execute(
-                                "INSERT INTO group_messages (group_id, sender_id, message_text, sent_at) VALUES (%s, %s, %s, %s)",
-                                (selected_group_id, user['user_id'], g_msg_input, now_ist)
-                            )
-                            conn.commit()
-                            st.rerun()
-            except Exception as e:
-                st.error(f"Group Chat Error: {e}")
-            finally:
-                conn.close()
