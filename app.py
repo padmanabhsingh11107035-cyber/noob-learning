@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import mysql.connector
 from PIL import Image
 import io
@@ -9,6 +10,12 @@ st.set_page_config(
     page_icon="🚀", 
     layout="centered"
 )
+
+# --- CHATWAY WIDGET INTEGRATION ---
+chatway_code = """
+<script id="chatway" async="true" src="https://cdn.chatway.app/widget.js?id=UbvqSsHWYpja"></script>
+"""
+components.html(chatway_code, height=0, width=0)
 
 # --- AIVEN DATABASE CONFIG ---
 DB_CONFIG = {
