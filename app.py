@@ -1298,33 +1298,44 @@ def run_system_self_diagnostics():
 run_system_self_diagnostics()
 
 
-# ==============================================================================
-# 11. EXTENDED APPLICATION FOOTER & METADATA
-# ==============================================================================
+import streamlit.components.v1 as components
 
-def render_application_footer():
-    """ Renders platform copyright and system metadata footer """
-    st.markdown("---")
-    footer_col1, footer_col2, footer_col3 = st.columns([2, 2, 2])
-    with footer_col1:
-        st.caption("🎓 **NOOB LEARNING Platform**")
-    with footer_col2:
-        st.caption("⚡ Powered by Streamlit & Aiven Cloud MySQL")
-    with footer_col3:
-        st.caption("🔒 Enterprise Secure SSL Encrypted")
+# --- LIVE TICKING CLOCK WIDGET ---
+live_clock_html = """
+<div style="font-family: sans-serif; font-size: 16px; font-weight: bold; color: #31333F; background-color: #F0F2F6; padding: 8px 12px; border-radius: 8px; display: inline-block;">
+    🕒 <span id="clock">Loading time...</span> | <span id="date"></span>
+</div>
 
+<script>
+function updateClock() {
+    const now = new Date();
+    
+    // Format Time (12-hour format with AM/PM)
+    let hours = now.getHours();
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // the hour '0' should be '12'
+    const formattedHours = String(hours).padStart(2, '0');
+    
+    const timeString = `${formattedHours}:${minutes}:${seconds} ${ampm}`;
+    
+    // Format Date (DD MMM YYYY)
+    const options = { day: '2-digit', month: 'short', year: 'numeric' };
+    const dateString = now.toLocaleDateString('en-GB', options);
+    
+    document.getElementById('clock').innerText = timeString;
+    document.getElementById('date').innerText = dateString;
+}
 
-render_application_footer()
-from datetime import datetime, timedelta
-import pytz
+setInterval(updateClock, 1000);
+updateClock();
+</script>
+"""
 
-IST = pytz.timezone("Asia/Kolkata")
-
-
-def get_current_time():
-  # Adding a 2-minute offset to match your local system clock
-  return (datetime.now(IST) + timedelta(minutes=2)).strftime("%Y-%m-%d %I:%M %p")
-
+# Render the component in your app layout
+components.html(live_clock_html, height=45)
 # ==============================================================================
 # END OF FILE (app.py)
 # ==============================================================================
