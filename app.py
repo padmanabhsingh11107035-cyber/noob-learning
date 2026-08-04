@@ -15,7 +15,10 @@ st.set_page_config(
 chatway_code = """
 <script id="chatway" async="true" src="https://cdn.chatway.app/widget.js?id=UbvqSsHWYpja"></script>
 """
-components.html(chatway_code, height=0, width=0)
+
+# Render in the sidebar so it's always loaded
+with st.sidebar:
+    components.html(chatway_code, height=500, scrolling=False)
 
 # --- AIVEN DATABASE CONFIG ---
 DB_CONFIG = {
