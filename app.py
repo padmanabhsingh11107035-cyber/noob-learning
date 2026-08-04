@@ -180,6 +180,7 @@ setup_database()
 # Session State for User Auth
 if "user" not in st.session_state:
     st.session_state.user = None
+
 # ================= AUTHENTICATION (LOGIN / SIGNUP) =================
 if not st.session_state.user:
     st.markdown("<h2 style='text-align: center; font-family: sans-serif;'>📸 Instagram</h2>", unsafe_allow_html=True)
@@ -288,7 +289,8 @@ else:
                     # Post Header (User Avatar + Username)
                     h_col1, h_col2 = st.columns([1, 6])
                     with h_col1:
-                        st.markdown(f'<img src="{post["profile_pic"]}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;">', unsafe_allow_html=True)
+                        pic_url = post["profile_pic"]
+                        st.markdown(f'<img src="{pic_url}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;">', unsafe_allow_html=True)
                     with h_col2:
                         st.markdown(f"**{post['username']}**")
 
@@ -317,6 +319,33 @@ else:
                     st.markdown(f"**{post['username']}** {post['caption']}")
                     st.caption(f"{post['created_at']}")
 
+    # ------------------ TAB 2: SEARCH & USERS ------------------
+    with app_tab_search:
+        st.subheader("🔍 Explore Users")
+        search_query = st.text_input("Search username...", key="search_bar")
+        
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            if search_query:
+                cursor.execute("SELECT user_id, username, profile_pic, bio FROM users WHERE username LIKE %s", (f"%{search_query}%",))
+            else:
+                cursor.execute("SELECT user_id, username, profile_pic, bio FROM users ORDER BY user_id DESC LIMIT 10")
+            found_users = cursor.fetchall()
+            conn.close()
+
+            for u in found_users:
+                with st.container(border=True):
+                    sc1, sc2, sc3 = st.columns([1, 4, 2])
+                    with sc1:
+                        user_pic = u['profile_pic']
+                        st.markdown(f'<img src="{user_pic}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">', unsafe_allow_html=True)
+                    with sc2:
+                        st.markdown(f"**@{u['username']}** `(# {u['user_id']})`")
+                        st.caption(u['bio'])
+                    with sc3:
+                        st.button("View", key=f"user_view_{u['user_id']}")
+
     # ------------------ TAB 3: CREATE NEW POST ------------------
     with app_tab_create:
         st.subheader("📸 Create New Post")
@@ -339,31 +368,6 @@ else:
                     st.rerun()
             else:
                 st.warning("Please enter a caption before sharing.")
-# ------------------ TAB 2: SEARCH & USERS ------------------
-    with app_tab_search:
-        st.subheader("🔍 Explore Users")
-        search_query = st.text_input("Search username...", key="search_bar")
-        
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor(dictionary=True)
-            if search_query:
-                cursor.execute("SELECT user_id, username, profile_pic, bio FROM users WHERE username LIKE %s", (f"%{search_query}%",))
-            else:
-                cursor.execute("SELECT user_id, username, profile_pic, bio FROM users ORDER BY user_id DESC LIMIT 10")
-            found_users = cursor.fetchall()
-            conn.close()
-
-            for u in found_users:
-                with st.container(border=True):
-                    sc1, sc2, sc3 = st.columns([1, 4, 2])
-                    with sc1:
-                        st.markdown(f'<img src="{u[\'profile_pic\']}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">', unsafe_allow_html=True)
-                    with sc2:
-                        st.markdown(f"**@{u['username']}** `(# {u['user_id']})`")
-                        st.caption(u['bio'])
-                    with sc3:
-                        st.button("View", key=f"user_view_{u['user_id']}")
 
     # ------------------ TAB 4: DIRECT MESSAGES (DM) ------------------
     with app_tab_msg:
@@ -431,10 +435,11 @@ else:
         p_col1, p_col2, p_col3, p_col4 = st.columns([2.5, 2, 2, 2])
 
         with p_col1:
+            prof_pic = user['profile_pic']
             st.markdown(f"""
                 <div class="profile-pic-container">
                     <div class="profile-pic">
-                        <img class="profile-pic-inner" src="{user['profile_pic']}" />
+                        <img class="profile-pic-inner" src="{prof_pic}" />
                     </div>
                 </div>
             """, unsafe_allow_html=True)
