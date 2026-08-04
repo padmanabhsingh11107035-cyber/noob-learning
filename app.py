@@ -129,6 +129,34 @@ def format_to_ist(dt_object):
         return dt_ist.strftime("%Y-%m-%d %I:%M:%S %p")
     return str(dt_object)
 
+def delete_post_by_id(post_id):
+    """ Helper function to delete a post """
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM posts WHERE post_id = %s", (post_id,))
+            conn.commit()
+            st.toast("Post deleted successfully!", icon="🗑️")
+        except Exception as e:
+            st.error(f"Failed to delete post: {e}")
+        finally:
+            conn.close()
+
+def update_post_caption(post_id, new_caption):
+    """ Helper function to edit a post caption """
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE posts SET caption = %s WHERE post_id = %s", (new_caption, post_id))
+            conn.commit()
+            st.toast("Post updated!", icon="✏️")
+        except Exception as e:
+            st.error(f"Failed to update post: {e}")
+        finally:
+            conn.close()
+
 # Dialog for Top Left Profile Icon Click
 @st.dialog("📷 Update Profile Picture")
 def update_profile_pic_dialog():
@@ -286,7 +314,8 @@ else:
                         if post['media_url']:
                             render_html_image(post['media_url'], width=380, height=380, circle=False)
 
-                        act_col1, act_col2 = st.columns([1, 5])
+                        # Bottom row: Likes on left, Three Dots Options Popover on far right
+                        act_col1, act_col2, act_col3 = st.columns([1, 4, 1])
                         with act_col1:
                             if st.button("❤️", key=f"like_{post['post_id']}"):
                                 conn_like = get_db_connection()
@@ -296,6 +325,29 @@ else:
                                     conn_like.commit()
                                     conn_like.close()
                                     st.rerun()
+
+                        with act_col3:
+                            # Three Dots Menu via Streamlit Popover
+                            with st.popover("⋮", help="Post Options"):
+                                st.write("**Post Options**")
+                                
+                                # SHARE OPTION
+                                if st.button("🔗 Share Post/Reel", key=f"feed_share_{post['post_id']}", use_container_width=True):
+                                    st.code(f"Post ID: {post['post_id']} by @{post['username']}\nCaption: {post['caption']}")
+                                    st.toast("Post details copied above!", icon="🔗")
+
+                                # EDIT & DELETE OPTIONS (Only shown if current user is owner)
+                                if post['user_id'] == user['user_id']:
+                                    st.divider()
+                                    with st.expander("✏️ Edit Caption"):
+                                        edited_cap = st.text_area("New Caption", value=post['caption'], key=f"feed_edit_txt_{post['post_id']}")
+                                        if st.button("Save Changes", key=f"feed_save_edit_{post['post_id']}", use_container_width=True):
+                                            update_post_caption(post['post_id'], edited_cap)
+                                            st.rerun()
+
+                                    if st.button("🗑️ Delete Post/Reel", key=f"feed_del_{post['post_id']}", type="primary", use_container_width=True):
+                                        delete_post_by_id(post['post_id'])
+                                        st.rerun()
 
                         st.write(f"**{post['likes']} likes**")
                         st.write(f"**@{post['username']}**: {post['caption']}")
@@ -494,7 +546,7 @@ else:
         if conn:
             try:
                 cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT caption, media_url, likes, created_at FROM posts WHERE user_id = %s ORDER BY created_at DESC", (p_user['user_id'],))
+                cursor.execute("SELECT post_id, caption, media_url, likes, created_at FROM posts WHERE user_id = %s ORDER BY created_at DESC", (p_user['user_id'],))
                 user_media = cursor.fetchall()
             except Exception:
                 user_media = []
@@ -508,7 +560,31 @@ else:
                     with st.container(border=True):
                         if item['media_url']:
                             render_html_image(item['media_url'], width=350, height=350, circle=False)
-                        st.write(f"❤️ **{item['likes']} likes**")
+                        
+                        prof_act_1, prof_act_2 = st.columns([4, 1])
+                        with prof_act_1:
+                            st.write(f"❤️ **{item['likes']} likes**")
+                        with prof_act_2:
+                            # Three dots menu in Profile Grid
+                            with st.popover("⋮", help="Post Options"):
+                                st.write("**Post Options**")
+                                
+                                if st.button("🔗 Share Post/Reel", key=f"prof_share_{item['post_id']}", use_container_width=True):
+                                    st.code(f"Post ID: {item['post_id']}\nCaption: {item['caption']}")
+                                    st.toast("Post details copied above!", icon="🔗")
+
+                                if p_user['user_id'] == user['user_id']:
+                                    st.divider()
+                                    with st.expander("✏️ Edit Caption"):
+                                        p_edited_cap = st.text_area("New Caption", value=item['caption'], key=f"prof_edit_txt_{item['post_id']}")
+                                        if st.button("Save Changes", key=f"prof_save_edit_{item['post_id']}", use_container_width=True):
+                                            update_post_caption(item['post_id'], p_edited_cap)
+                                            st.rerun()
+
+                                    if st.button("🗑️ Delete Post/Reel", key=f"prof_del_{item['post_id']}", type="primary", use_container_width=True):
+                                        delete_post_by_id(item['post_id'])
+                                        st.rerun()
+
                         st.write(f"📝 {item['caption']}")
                         st.caption(format_to_ist(item['created_at']))
 
