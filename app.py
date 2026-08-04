@@ -1315,6 +1315,15 @@ def render_application_footer():
 
 
 render_application_footer()
+from datetime import datetime, timedelta
+import pytz
+
+IST = pytz.timezone("Asia/Kolkata")
+
+
+def get_current_time():
+  # Adding a 2-minute offset to match your local system clock
+  return (datetime.now(IST) + timedelta(minutes=2)).strftime("%Y-%m-%d %I:%M %p")
 
 # ==============================================================================
 # END OF FILE (app.py)
