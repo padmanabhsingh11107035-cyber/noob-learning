@@ -9,6 +9,14 @@ import re
 import mysql.connector
 from mysql.connector import errorcode
 import streamlit as st
+import streamlit as st
+
+# Initialize the MySQL connection
+conn = st.connection("mysql", type="sql")
+
+# Test the connection by running a simple query
+df = conn.query("SELECT 1;", ttl=0)
+st.success("Successfully connected to the database!")
 
 # ==============================================================================
 # 1. PAGE CONFIGURATION & GLOBAL STYLES
