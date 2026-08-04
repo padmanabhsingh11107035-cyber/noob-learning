@@ -65,6 +65,17 @@ def setup_database():
                     FOREIGN KEY (receiver_id) REFERENCES users(user_id)
                 );
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS follows (
+                    follow_id INT AUTO_INCREMENT PRIMARY KEY,
+                    follower_id INT NOT NULL,
+                    following_id INT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_follow (follower_id, following_id),
+                    FOREIGN KEY (follower_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (following_id) REFERENCES users(user_id) ON DELETE CASCADE
+                );
+            """)
             conn.commit()
 
             # Ensure extra columns exist on older posts/users tables
@@ -154,6 +165,53 @@ def update_post_caption(post_id, new_caption):
             st.toast("Post updated!", icon="✏️")
         except Exception as e:
             st.error(f"Failed to update post: {e}")
+        finally:
+            conn.close()
+
+def get_follower_count(user_id):
+    """ Returns total followers count for a user_id """
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM follows WHERE following_id = %s", (user_id,))
+            res = cursor.fetchone()
+            return res[0] if res else 0
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+    return 0
+
+def is_following(follower_id, following_id):
+    """ Checks if follower_id is following following_id """
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT follow_id FROM follows WHERE follower_id = %s AND following_id = %s", (follower_id, following_id))
+            return cursor.fetchone() is not None
+        except Exception:
+            return False
+        finally:
+            conn.close()
+    return False
+
+def toggle_follow(follower_id, following_id):
+    """ Follows or Unfollows a user """
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            if is_following(follower_id, following_id):
+                cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s", (follower_id, following_id))
+                st.toast("Unfollowed user!", icon="👤")
+            else:
+                cursor.execute("INSERT INTO follows (follower_id, following_id) VALUES (%s, %s)", (follower_id, following_id))
+                st.toast("Follow request sent!", icon="➕")
+            conn.commit()
+        except Exception as e:
+            st.error(f"Follow action failed: {e}")
         finally:
             conn.close()
 
@@ -248,6 +306,7 @@ if not st.session_state.user:
 # ================= MAIN APP INTERFACE =================
 else:
     user = st.session_state.user
+    my_followers_count = get_follower_count(user['user_id'])
 
     # TOP HEADER WITH USER PROFILE ICON & CLOCK
     header_col1, header_col2, header_col3 = st.columns([1, 3, 2])
@@ -259,7 +318,7 @@ else:
 
     with header_col2:
         st.markdown(f"### **NOOB LEARNING**")
-        st.caption(f"Logged in as @{user['username']}")
+        st.caption(f"Logged in as **@{user['username']}** | 👥 Followers: **{my_followers_count}**")
 
     with header_col3:
         ist_now = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata"))
@@ -271,8 +330,8 @@ else:
 
     st.divider()
 
-    app_tab_feed, app_tab_search, app_tab_create, app_tab_msg, app_tab_profile, app_tab_chatway = st.tabs(
-        ["🏠 Feed", "🔍 Search", "➕ Create", "💬 Direct", "👤 Profile", "🤖 AI Support"]
+    app_tab_feed, app_tab_search, app_tab_friends, app_tab_create, app_tab_msg, app_tab_profile, app_tab_chatway = st.tabs(
+        ["🏠 Feed", "🔍 Search", "👥 Add Friends", "➕ Create", "💬 Direct", "👤 Profile", "🤖 AI Support"]
     )
 
     # ------------------ TAB 1: MAIN FEED ------------------
@@ -299,12 +358,13 @@ else:
                 st.info("No posts yet! Create one in the '➕ Create' tab.")
             else:
                 for post in feed_posts:
+                    post_f_count = get_follower_count(post['user_id'])
                     with st.container(border=True):
                         h_col1, h_col2, h_col3 = st.columns([1, 4, 2])
                         with h_col1:
                             render_html_image(get_user_pic(post), width=40, height=40, circle=True)
                         with h_col2:
-                            st.markdown(f"**@{post['username']}**")
+                            st.markdown(f"**@{post['username']}** `Followers: {post_f_count}`")
                             st.caption(format_to_ist(post['created_at']))
                         with h_col3:
                             if st.button("👤 View Profile", key=f"feed_view_{post['post_id']}"):
@@ -327,7 +387,6 @@ else:
                                     st.rerun()
 
                         with act_col3:
-                            # Three Dots Menu via Streamlit Popover
                             with st.popover("⋮", help="Post Options"):
                                 st.write("**Post Options**")
                                 
@@ -354,15 +413,18 @@ else:
 
     # ------------------ TAB 2: SEARCH ------------------
     with app_tab_search:
-        st.subheader("🔍 Explore Users")
-        search_query = st.text_input("Search username...", key="search_bar")
+        st.subheader("🔍 Search Accounts")
+        search_query = st.text_input("Search username or user ID...", key="search_bar")
         
         conn = get_db_connection()
         if conn:
             try:
                 cursor = conn.cursor(dictionary=True)
-                if search_query:
-                    cursor.execute("SELECT user_id, username, profile_pic, bio FROM users WHERE username LIKE %s", (f"%{search_query}%",))
+                if search_query.strip():
+                    cursor.execute(
+                        "SELECT user_id, username, profile_pic, bio FROM users WHERE username LIKE %s OR user_id LIKE %s", 
+                        (f"%{search_query.strip()}%", f"%{search_query.strip()}%")
+                    )
                 else:
                     cursor.execute("SELECT user_id, username, profile_pic, bio FROM users ORDER BY user_id DESC LIMIT 10")
                 found_users = cursor.fetchall()
@@ -373,19 +435,65 @@ else:
                 conn.close()
 
             for u in found_users:
+                f_count = get_follower_count(u['user_id'])
                 with st.container(border=True):
                     sc1, sc2, sc3 = st.columns([1, 4, 2])
                     with sc1:
                         render_html_image(get_user_pic(u), width=40, height=40, circle=True)
                     with sc2:
-                        st.write(f"**@{u['username']}** (ID: {u['user_id']})")
+                        st.write(f"**@{u['username']}** | ID: `{u['user_id']}` | 👥 **Followers: {f_count}**")
                         st.caption(get_user_bio(u))
                     with sc3:
-                        if st.button("View Profile", key=f"search_u_{u['user_id']}"):
+                        if u['user_id'] != user['user_id']:
+                            already_following = is_following(user['user_id'], u['user_id'])
+                            btn_label = "✔ Following" if already_following else "➕ Follow Request"
+                            if st.button(btn_label, key=f"search_follow_{u['user_id']}", use_container_width=True):
+                                toggle_follow(user['user_id'], u['user_id'])
+                                st.rerun()
+                        if st.button("View Profile", key=f"search_u_{u['user_id']}", use_container_width=True):
                             st.session_state.view_user_id = u['user_id']
                             st.rerun()
 
-    # ------------------ TAB 3: CREATE POST ------------------
+    # ------------------ TAB 3: ADD FRIENDS ------------------
+    with app_tab_friends:
+        st.subheader("👥 Add Friends & View All User IDs")
+        st.write("Browse all registered accounts, see their user IDs, and send follow requests.")
+        
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT user_id, username, profile_pic, bio FROM users ORDER BY user_id ASC")
+                all_users = cursor.fetchall()
+            except Exception as e:
+                st.error(f"Error fetching users: {e}")
+                all_users = []
+            finally:
+                conn.close()
+
+            if not all_users:
+                st.info("No registered users found.")
+            else:
+                for u in all_users:
+                    f_count = get_follower_count(u['user_id'])
+                    with st.container(border=True):
+                        fc1, fc2, fc3 = st.columns([1, 4, 3])
+                        with fc1:
+                            render_html_image(get_user_pic(u), width=45, height=45, circle=True)
+                        with fc2:
+                            st.write(f"**@{u['username']}** (User ID: `{u['user_id']}`)")
+                            st.caption(f"👥 **Followers:** {f_count} | Bio: {get_user_bio(u)}")
+                        with fc3:
+                            if u['user_id'] == user['user_id']:
+                                st.info(" You")
+                            else:
+                                following_status = is_following(user['user_id'], u['user_id'])
+                                follow_btn_txt = "✔ Following" if following_status else "➕ Send Follow Request"
+                                if st.button(follow_btn_txt, key=f"friend_follow_{u['user_id']}", use_container_width=True):
+                                    toggle_follow(user['user_id'], u['user_id'])
+                                    st.rerun()
+
+    # ------------------ TAB 4: CREATE POST ------------------
     with app_tab_create:
         st.subheader("📸 Create New Post / Reel")
         
@@ -427,7 +535,7 @@ else:
             else:
                 st.warning("Please enter a caption.")
 
-    # ------------------ TAB 4: DIRECT MESSAGES ------------------
+    # ------------------ TAB 5: DIRECT MESSAGES ------------------
     with app_tab_msg:
         st.subheader("💬 Direct Messages")
         target_id = st.number_input("Enter User ID to chat with:", min_value=1, step=1, key="dm_target_id")
@@ -476,7 +584,7 @@ else:
                         finally:
                             conn.close()
 
-    # ------------------ TAB 5: PROFILE & SETTINGS ------------------
+    # ------------------ TAB 6: PROFILE & SETTINGS ------------------
     with app_tab_profile:
         # Determine whether viewing logged-in user or selected user
         active_profile_id = st.session_state.view_user_id or user['user_id']
@@ -499,6 +607,7 @@ else:
                 st.session_state.view_user_id = None
                 st.rerun()
 
+        prof_f_count = get_follower_count(p_user['user_id'])
         st.subheader(f"Profile: @{p_user['username']}")
 
         user_posts_count = 0
@@ -517,8 +626,17 @@ else:
         with p_col1:
             render_html_image(get_user_pic(p_user), width=80, height=80, circle=True)
         with p_col2:
-            st.write(f"**Posts / Reels:** {user_posts_count}")
-            st.write(f"**Bio:** {get_user_bio(p_user)}")
+            st.write(f"**User ID:** `{p_user['user_id']}`")
+            st.write(f"👥 **Followers:** {prof_f_count}")
+            st.write(f"🎬 **Posts / Reels:** {user_posts_count}")
+            st.write(f"📝 **Bio:** {get_user_bio(p_user)}")
+
+            if p_user['user_id'] != user['user_id']:
+                following_p = is_following(user['user_id'], p_user['user_id'])
+                p_btn_label = "✔ Following" if following_p else "➕ Send Follow Request"
+                if st.button(p_btn_label, key="profile_follow_toggle_btn"):
+                    toggle_follow(user['user_id'], p_user['user_id'])
+                    st.rerun()
 
         # Only display edit settings if viewing own profile
         if p_user['user_id'] == user['user_id']:
@@ -565,7 +683,6 @@ else:
                         with prof_act_1:
                             st.write(f"❤️ **{item['likes']} likes**")
                         with prof_act_2:
-                            # Three dots menu in Profile Grid
                             with st.popover("⋮", help="Post Options"):
                                 st.write("**Post Options**")
                                 
@@ -588,7 +705,7 @@ else:
                         st.write(f"📝 {item['caption']}")
                         st.caption(format_to_ist(item['created_at']))
 
-    # ------------------ TAB 6: AI SUPPORT ------------------
+    # ------------------ TAB 7: AI SUPPORT ------------------
     with app_tab_chatway:
         st.subheader("🤖 Saraah AI Support Assistant")
         chatway_code = """
