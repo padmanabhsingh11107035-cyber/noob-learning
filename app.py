@@ -26,30 +26,37 @@ import hashlib
 from typing import Dict, List, Tuple, Optional, Any, Union
 import streamlit.components.v1 as components
 
-# --- LIVE BROWSER CLOCK (No pytz or server lag) ---
+# --- LIVE TOP HEADER CLOCK ---
 components.html(
     """
-<div style="font-family: sans-serif; font-size: 15px; font-weight: bold; color: #31333F; background-color: #F0F2F6; padding: 6px 10px; border-radius: 6px; display: inline-block;">
-    🕒 <span id="clock">Loading...</span> | <span id="date"></span>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 600; color: #31333F; background-color: #F0F2F6; padding: 6px 12px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;">
+    <span>🕒</span>
+    <span id="live-clock">Loading...</span> 
+    <span style="color: #ccc;">|</span> 
+    <span id="live-date"></span>
 </div>
+
 <script>
-function updateClock() {
+function updateTopClock() {
     const now = new Date();
     let hours = now.getHours();
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const seconds = String(now.getSeconds()).padStart(2, '0');
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
-    document.getElementById('clock').innerText = `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
-    document.getElementById('date').innerText = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    
+    const timeStr = `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
+    const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    
+    document.getElementById('live-clock').innerText = timeStr;
+    document.getElementById('live-date').innerText = dateStr;
 }
-setInterval(updateClock, 1000);
-updateClock();
+setInterval(updateTopClock, 1000);
+updateTopClock();
 </script>
 """,
     height=40,
 )
-
 # ==============================================================================
 # 0. LOGGING AND SYSTEM DIAGNOSTICS SETUP
 # ==============================================================================
