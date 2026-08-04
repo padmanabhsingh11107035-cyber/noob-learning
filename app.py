@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Force python to see the root directory for local package imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import streamlit as st
 from config.database import init_database_tables, get_db_connection
 from views.auth import render_auth_view
