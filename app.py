@@ -11,7 +11,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- CUSTOM CSS STYLING ---
+# --- FORCE BLACK TEXT & LIGHT THEME STYLING ---
 st.markdown("""
     <style>
     /* Hide Streamlit Chrome */
@@ -19,9 +19,28 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
-    .stApp {
-        background-color: #FFFFFF;
+    /* Force Light App Background & Black Text everywhere */
+    .stApp, div[data-testid="stAppViewContainer"] {
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* Force all Headings, Titles, Labels, Subtitles to Black */
+    h1, h2, h3, h4, h5, h6, p, span, label, div {
+        color: #000000 !important;
+    }
+
+    /* Tab Headers Black Text */
+    button[data-baseweb="tab"] div {
+        color: #000000 !important;
+        font-weight: 600;
+    }
+
+    /* Input Field Labels & Text */
+    .stTextInput label, .stTextArea label, .stNumberInput label {
+        color: #000000 !important;
+        font-weight: 600;
     }
 
     /* Profile Circular Avatar Ring */
@@ -29,7 +48,6 @@ st.markdown("""
         display: flex;
         justify-content: center;
         align-items: center;
-        position: relative;
     }
     .profile-pic {
         width: 86px;
@@ -53,10 +71,11 @@ st.markdown("""
         font-size: 16px;
         text-align: center;
         margin-bottom: 0px;
+        color: #000000 !important;
     }
     .stat-label {
         font-size: 12px;
-        color: #737373;
+        color: #555555 !important;
         text-align: center;
     }
 
@@ -64,14 +83,14 @@ st.markdown("""
     .stButton>button {
         border-radius: 8px;
         font-weight: 600;
-        background-color: #EFEFEF;
-        color: #000000;
-        border: none;
-        height: 35px;
+        background-color: #EFEFEF !important;
+        color: #000000 !important;
+        border: 1px solid #CCCCCC !important;
+        height: 38px;
     }
     .stButton>button:hover {
-        background-color: #DBDBDB;
-        color: #000000;
+        background-color: #DBDBDB !important;
+        color: #000000 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -93,7 +112,7 @@ def get_db_connection():
         return None
 
 def setup_database():
-    """ Initializes tables in Aiven MySQL database """
+    """ Initializes tables and updates missing columns safely """
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
@@ -139,16 +158,15 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 def get_user_pic(u_dict):
-    if u_dict and isinstance(u_dict, dict) and "profile_pic" in u_dict and u_dict["profile_pic"]:
+    if u_dict and isinstance(u_dict, dict) and u_dict.get("profile_pic"):
         return u_dict["profile_pic"]
     return "https://via.placeholder.com/150"
 
 def get_user_bio(u_dict):
-    if u_dict and isinstance(u_dict, dict) and "bio" in u_dict and u_dict["bio"]:
+    if u_dict and isinstance(u_dict, dict) and u_dict.get("bio"):
         return u_dict["bio"]
     return "Welcome to NOOB LEARNING!"
 
-# Convert image file to base64 data URL
 def convert_file_to_base64(uploaded_file):
     bytes_data = uploaded_file.getvalue()
     base64_str = base64.b64encode(bytes_data).decode()
@@ -157,8 +175,8 @@ def convert_file_to_base64(uploaded_file):
 
 # ================= AUTHENTICATION (LOGIN / SIGNUP) =================
 if not st.session_state.user:
-    st.markdown("<h2 style='text-align: center; font-family: sans-serif;'>🎓 NOOB LEARNING</h2>", unsafe_allow_html=True)
-    st.caption("Log in or create an account to get started.")
+    st.markdown("<h2 style='text-align: center; color: #000000;'>🎓 NOOB LEARNING</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #333333;'>Log in or create an account to get started.</p>", unsafe_allow_html=True)
 
     tab_login, tab_signup = st.tabs(["🔒 Log In", "📝 Sign Up"])
 
@@ -205,7 +223,7 @@ else:
     # TOP HEADER NAVIGATION
     nav_col1, nav_col2 = st.columns([5, 1])
     with nav_col1:
-        st.markdown("<h2 style='margin:0; font-family: sans-serif;'>NOOB LEARNING</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='margin:0; color: #000000;'>NOOB LEARNING</h2>", unsafe_allow_html=True)
     with nav_col2:
         if st.button("Logout"):
             st.session_state.user = None
@@ -236,7 +254,6 @@ else:
             else:
                 for post in feed_posts:
                     with st.container(border=True):
-                        # Post Header
                         h_col1, h_col2 = st.columns([1, 6])
                         with h_col1:
                             pic_url = get_user_pic(post)
@@ -244,11 +261,9 @@ else:
                         with h_col2:
                             st.markdown(f"**{post['username']}**")
 
-                        # Post Media
                         if post['media_url']:
                             st.image(post['media_url'], use_container_width=True)
 
-                        # Action Bar
                         act_col1, act_col2, act_col3, act_col4 = st.columns([1, 1, 1, 5])
                         with act_col1:
                             if st.button("❤️", key=f"like_{post['post_id']}"):
@@ -264,14 +279,13 @@ else:
                         with act_col3:
                             st.button("✈️", key=f"share_{post['post_id']}")
 
-                        # Likes & Caption
                         st.markdown(f"**{post['likes']} likes**")
                         st.markdown(f"**{post['username']}** {post['caption']}")
                         st.caption(f"{post['created_at']}")
 
     # ------------------ TAB 2: SEARCH ------------------
     with app_tab_search:
-        st.subheader("🔍 Explore Users")
+        st.markdown("### 🔍 Explore Users")
         search_query = st.text_input("Search username...", key="search_bar")
         
         conn = get_db_connection()
@@ -298,7 +312,7 @@ else:
 
     # ------------------ TAB 3: CREATE POST ------------------
     with app_tab_create:
-        st.subheader("📸 Create New Post")
+        st.markdown("### 📸 Create New Post")
         img_url_input = st.text_input("Image or Video URL")
         caption_input = st.text_area("Write a caption...", height=100)
 
@@ -321,7 +335,7 @@ else:
 
     # ------------------ TAB 4: DIRECT MESSAGES ------------------
     with app_tab_msg:
-        st.subheader("💬 Direct Messages")
+        st.markdown("### 💬 Direct Messages")
         target_id = st.number_input("Enter User ID to chat with:", min_value=1, step=1, key="dm_target_id")
         
         if target_id:
@@ -367,7 +381,6 @@ else:
 
         st.write("")
 
-        # Posts count query
         user_posts_count = 0
         conn = get_db_connection()
         if conn:
@@ -376,7 +389,6 @@ else:
             user_posts_count = cursor.fetchone()[0]
             conn.close()
 
-        # Profile Header
         p_col1, p_col2 = st.columns([2.5, 6])
 
         with p_col1:
@@ -393,15 +405,12 @@ else:
             st.markdown(f'<p class="stat-number">{user_posts_count}</p>', unsafe_allow_html=True)
             st.markdown('<p class="stat-label">posts</p>', unsafe_allow_html=True)
 
-        # Bio Section
         st.markdown(f"**{user['username']}**")
         st.markdown(f"{get_user_bio(user)}")
 
-        # PROFILE SETTINGS / PICTURE UPDATE ACCORDION
         with st.expander("⚙️ Settings & Profile Picture (➕ Add / Change)"):
             st.markdown("#### Update Profile Picture")
             
-            # Choose Source Mode
             photo_source = st.radio(
                 "Select image source:", 
                 ["📁 Gallery / File Upload", "📷 Camera Capture", "🔗 Image URL"],
@@ -425,7 +434,6 @@ else:
                 if url_input.strip():
                     new_pic_data = url_input.strip()
 
-            # Save Profile Picture
             if st.button("➕ Save Profile Picture", use_container_width=True):
                 if new_pic_data:
                     conn = get_db_connection()
@@ -438,11 +446,10 @@ else:
                         st.success("Profile picture updated!")
                         st.rerun()
                 else:
-                    st.warning("Please upload a photo, take a picture, or enter a valid URL first.")
+                    st.warning("Please select or capture a photo first.")
 
             st.divider()
             
-            # Edit Bio Option
             st.markdown("#### Edit Bio")
             new_bio = st.text_input("New Bio Text", value=get_user_bio(user))
             if st.button("Save Bio", use_container_width=True):
@@ -458,7 +465,6 @@ else:
 
         st.divider()
 
-        # Real User Grid
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor(dictionary=True)
@@ -485,7 +491,7 @@ else:
 
     # ------------------ TAB 6: AI SUPPORT ------------------
     with app_tab_chatway:
-        st.subheader("🤖 Saraah AI Support Assistant")
+        st.markdown("### 🤖 Saraah AI Support Assistant")
         chatway_code = """
         <iframe 
             src="https://chatway.app/widget/UbvqSsHWYpja" 
