@@ -839,3 +839,87 @@ def main():
 
 if __name__ == "__main__":
     main()
+# ==============================================================================
+# UPDATED AUTHENTICATION MODULE (TOGGLE LOGIN / SIGNUP)
+# ==============================================================================
+def render_auth_view():
+    st.subheader("Welcome to Noob Learning 🚀")
+    
+    # Initialize session state for auth mode if not present
+    if 'auth_mode' not in st.session_state:
+        st.session_state['auth_mode'] = 'login'
+
+    # Display Login Screen
+    if st.session_state['auth_mode'] == 'login':
+        st.subheader("🔑 User Login")
+        with st.form("login_form", clear_on_submit=False):
+            username_input = st.text_input("Username", placeholder="Enter your username")
+            password_input = st.text_input("Password", type='password', placeholder="Enter your password")
+            submit_login = st.form_submit_button("Log In", use_container_width=True)
+
+            if submit_login:
+                if not username_input.strip() or not password_input.strip():
+                    st.warning("Please fill in both fields.")
+                else:
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor(dictionary=True)
+                        cursor.execute("SELECT * FROM users WHERE username = %s", (username_input.strip(),))
+                        user = cursor.fetchone()
+                        cursor.close()
+                        conn.close()
+
+                        if user and check_hashes(password_input, user['password_hash']):
+                            st.session_state['logged_in'] = True
+                            st.session_state['username'] = user['username']
+                            st.session_state['user_id'] = user['user_id']
+                            st.success(f"Welcome back, @{user['username']}!")
+                            st.rerun()
+                        else:
+                            st.error("Invalid username or password.")
+
+        st.write("Don't have an account?")
+        if st.button("Create Account"):
+            st.session_state['auth_mode'] = 'signup'
+            st.rerun()
+
+    # Display Create Account Screen
+    elif st.session_state['auth_mode'] == 'signup':
+        st.subheader("📝 Create New Account")
+        with st.form("signup_form", clear_on_submit=True):
+            new_username = st.text_input("Choose Username", placeholder="e.g. padmanabh")
+            new_password = st.text_input("Choose Password", type='password')
+            confirm_password = st.text_input("Confirm Password", type='password')
+            submit_signup = st.form_submit_button("Register Account", use_container_width=True)
+
+            if submit_signup:
+                if not new_username.strip() or not new_password.strip():
+                    st.warning("All fields are required.")
+                elif new_password != confirm_password:
+                    st.error("Passwords do not match!")
+                elif len(new_password) < 4:
+                    st.error("Password must be at least 4 characters long.")
+                else:
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        try:
+                            hashed_pwd = make_hashes(new_password)
+                            cursor.execute(
+                                "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
+                                (new_username.strip(), hashed_pwd)
+                            )
+                            conn.commit()
+                            st.success("Account created successfully! Redirecting to login...")
+                            st.session_state['auth_mode'] = 'login'
+                            st.rerun()
+                        except Exception as err:
+                            st.error(f"Registration error or username taken: {err}")
+                        finally:
+                            cursor.close()
+                            conn.close()
+
+        st.write("Already have an account?")
+        if st.button("Back to Login"):
+            st.session_state['auth_mode'] = 'login'
+            st.rerun()
