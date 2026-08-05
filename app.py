@@ -1095,30 +1095,22 @@ else:
                                 new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
                                 new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '', key="edit_birthdate_input")
 
-    current_gender = user.get('gender')
-    gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
-    new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
-    new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '', key="edit_birthdate_input")
-
     if st.form_submit_button("Update Profile"):
-        try:
-            if db_type == "mysql":
-                cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE id = %s",
-                               (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['id']))
-            else:
-                cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE id = ?",
-                               (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['id']))
-            
-            conn.commit()
-            user['name'] = new_name
-            user['bio'] = new_bio
-            user['age'] = new_age
-            user['gender'] = new_gender
-            user['birth_date'] = new_birth_date
-            st.success("Profile updated successfully!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Update failed: {e}")
+        if db_type == "mysql":
+            cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE id = %s",
+                           (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['id']))
+        else:
+            cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE id = ?",
+                           (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['id']))
+        
+        conn.commit()
+        user['name'] = new_name
+        user['bio'] = new_bio
+        user['age'] = new_age
+        user['gender'] = new_gender
+        user['birth_date'] = new_birth_date
+        st.success("Profile updated successfully!")
+        st.rerun()
             
                             st.write("### 🔖 Saved Reels & Posts")
                             if db_type == "mysql":
