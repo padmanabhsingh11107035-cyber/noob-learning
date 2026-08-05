@@ -940,7 +940,7 @@ else:
                     st.info("You can only chat with users who are your friends (mutual follow or accepted request).")
                 else:
                     friend_usernames = [f['username'] for f in friends]
-                    selected_friend = st.selectbox("Select Friend to Chat", friend_usernames)
+                    selected_friend = st.selectbox("Select Friend to Chat", friend_usernames, key="chat_select_friend")
                     
                     target_friend = next((f for f in friends if f['username'] == selected_friend), None)
                     if target_friend:
@@ -971,7 +971,7 @@ else:
                             st.markdown(f"**{sender_name}**: {m['message_text']} <span style='font-size: 0.7rem; color: gray;'>({msg_time})</span>", unsafe_allow_html=True)
 
                         with st.form("chat_send_form", clear_on_submit=True):
-                            msg_text = st.text_input("Type a message...")
+                            msg_text = st.text_input("Type a message...", key="chat_msg_input")
                             if st.form_submit_button("Send"):
                                 if msg_text.strip():
                                     current_ts = get_current_ist_time()
@@ -1013,7 +1013,6 @@ else:
                         st.write(f"**User ID:** {profile_user.get('user_id', 'N/A')}")
                         st.write(f"**Bio:** {profile_user.get('bio', '')}")
                         
-                        # Displaying new details
                         st.write(f"**Age:** {profile_user.get('age', 'N/A')} | **Gender:** {profile_user.get('gender', 'N/A')}")
                         st.write(f"**Birth Date:** {profile_user.get('birth_date', 'N/A')}")
                         
@@ -1031,7 +1030,7 @@ else:
                             follow_rel = dict(row) if row else None
 
                         if not follow_rel:
-                            if st.button("Follow"):
+                            if st.button("Follow", key="profile_follow_btn"):
                                 status = "Pending" if profile_user.get('account_type') == 'Private' else "Accepted"
                                 if db_type == "mysql":
                                     cursor.execute("""
@@ -1048,9 +1047,9 @@ else:
                         else:
                             rel_status = follow_rel.get('status', 'Accepted')
                             if rel_status == 'Pending':
-                                st.button("Requested", disabled=True)
+                                st.button("Requested", disabled=True, key="profile_requested_btn")
                             else:
-                                if st.button("Unfollow"):
+                                if st.button("Unfollow", key="profile_unfollow_btn"):
                                     if db_type == "mysql":
                                         cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s",
                                                        (user['user_id'], profile_user['user_id']))
@@ -1085,14 +1084,14 @@ else:
                                         st.error(f"Error updating profile picture: {img_err}")
 
                             with st.form("edit_profile_form"):
-                                new_name = st.text_input("Name", value=user.get('name', '') or '')
-                                new_bio = st.text_area("Bio", value=user.get('bio', '') or '')
-                                new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18))
+                                new_name = st.text_input("Name", value=user.get('name', '') or '', key="edit_name_input")
+                                new_bio = st.text_area("Bio", value=user.get('bio', '') or '', key="edit_bio_input")
+                                new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18), key="edit_age_input")
                                 gender_options = ["Male", "Female", "Other", "Prefer not to say"]
                                 current_gender = user.get('gender')
                                 gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
-                                new_gender = st.selectbox("Gender", gender_options, index=gender_idx)
-                                new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '')
+                                new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
+                                new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '', key="edit_birthdate_input")
 
                                 if st.form_submit_button("Update Profile"):
                                     if db_type == "mysql":
@@ -1156,7 +1155,7 @@ else:
                                 if lp.get('media_url'):
                                     st.image(lp['media_url'], width=150)
 
-                            if st.button("Log Out"):
+                            if st.button("Log Out", key="settings_logout_btn"):
                                 st.session_state.user = None
                                 st.session_state.viewing_profile_id = None
                                 st.rerun()
