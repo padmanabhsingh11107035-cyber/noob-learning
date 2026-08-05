@@ -839,19 +839,17 @@ else:
         )
 
     with header_col3:
+        btn_logout, btn_stats = st.columns(2)
 
-    btn_logout, btn_stats = st.columns(2)
+        with btn_logout:
+            if st.button("Logout", key="app_logout_btn"):
+                st.session_state.user = None
+                st.session_state.view_user_id = None
+                st.rerun()
 
-    with btn_logout:
-        if st.button("Logout", key="app_logout_btn"):
-            st.session_state.user = None
-            st.session_state.view_user_id = None
-            st.rerun()
-
-    with btn_stats:
-        if st.button("📊 Stats", key="app_stats_btn"):
-            show_platform_analytics()
-
+        with btn_stats:
+            if st.button("📊 Stats", key="app_stats_btn"):
+                show_platform_analytics()
     # ------------------ MAIN TABS NAVIGATION ------------------
     (
     app_tab_feed,
