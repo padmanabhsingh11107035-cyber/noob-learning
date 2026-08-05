@@ -11,22 +11,6 @@ import pymysql
 import time
 
 # Live Chat Input Box
-if prompt := st.chat_input("Message..."):
-    # Append user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(f"<div style='background-color: #3797ef; color: white; padding: 10px 14px; border-radius: 18px; display: inline-block; max-width: 75%; float: right;'>{prompt}</div>", unsafe_allow_html=True)
-
-    # Smart fallback / automated response matching your persona vibe
-    if "think of me" in prompt.lower() or "good" in prompt.lower():
-        reply = "Aww, you're making me blush! 🥰 Tell me more about what you're up to today."
-    else:
-        reply = "Hehe I love talking to you! What else is on your mind? 💕"
-
-    # Append assistant reply
-    st.session_state.messages.append({"role": "assistant", "content": reply})
-    with st.chat_message("assistant", avatar="👩"):
-        st.markdown(f"<div style='background-color: #262626; color: white; padding: 10px 14px; border-radius: 18px; display: inline-block; max-width: 75%;'>{reply}</div>", unsafe_allow_html=True)
 
 def render_live_chat(current_user):
     st.markdown("### 💬 Direct Messages")
