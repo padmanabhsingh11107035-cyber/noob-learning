@@ -1457,7 +1457,7 @@ def render_settings_and_activity_hub(user_id: int):
     elif st.session_state.get("nav_tab") == "Reels":
         render_reels_viewer_page(user['user_id'])
     elif st.session_state.get("nav_tab") == "Chat":
-    render_live_chat(st.session_state.get("username"))
+        render_live_chat(st.session_state.get("username"))
     elif st.session_state.get("nav_tab") == "Profile":
         pass
     elif st.session_state.get("nav_tab") == "Settings":
