@@ -647,15 +647,23 @@ else:
             db_type, conn = get_db_connection()
             if conn:
                 try:
+                    # Check if the query is a number to search by ID or Username
+                    if search_query.isdigit():
+                        query = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE (user_id = %s OR username LIKE %s) AND user_id != %s"
+                        params = (int(search_query), f"%{search_query}%", user['user_id'])
+                        sqlite_query = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE (user_id = ? OR username LIKE ?) AND user_id != ?"
+                    else:
+                        query = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE %s AND user_id != %s"
+                        params = (f"%{search_query}%", user['user_id'])
+                        sqlite_query = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE ? AND user_id != ?"
+
                     if db_type == "mysql":
                         cursor = conn.cursor(dictionary=True)
-                        cursor.execute("SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE %s AND user_id != %s", 
-                                       (f"%{search_query}%", user['user_id']))
+                        cursor.execute(query, params)
                         results = cursor.fetchall()
                     else:
                         cursor = conn.cursor()
-                        cursor.execute("SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE ? AND user_id != ?", 
-                                       (f"%{search_query}%", user['user_id']))
+                        cursor.execute(sqlite_query, params)
                         results = [dict(row) for row in cursor.fetchall()]
 
                     if not results:
@@ -664,13 +672,15 @@ else:
                         for u in results:
                             col_u1, col_u2 = st.columns([3, 1])
                             with col_u1:
-                                st.markdown(f"**@{u['username']}** ({u['name'] or 'User'}) - *{u['account_type']}*")
+                                st.markdown(f"**@{u['username']}** (ID: {u['user_id']}) - {u['name'] or 'User'} - *{u['account_type']}*")
                             with col_u2:
                                 if st.button("View Profile", key=f"view_{u['user_id']}"):
                                     st.session_state.viewing_profile_id = u['user_id']
                                     st.session_state.nav_tab = "Profile"
                                     st.rerun()
                             st.divider()
+                except Exception as e:
+                    st.error("An error occurred while searching. Please try again.")
                 finally:
                     conn.close()
 
