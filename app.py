@@ -615,32 +615,7 @@ def render_enhanced_direct_messages(user: Dict[str, Any]):
                     conn.close()
 
     # ------------------ 2. GROUP CHAT ------------------
-    else:
-        st.write("### Community Group Chat")
-
-        with st.expander("➕ Create New Chat Group"):
-            new_g_name = st.text_input("Enter Group Name:", key="new_group_name_input_field")
-            if st.button("Create Group Now", use_container_width=True):
-                if new_g_name.strip():
-                    conn = get_db_connection()
-                    if conn:
-                        try:
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                "INSERT INTO chat_groups (group_name, created_by) VALUES (%s, %s)",
-                                (sanitize_input(new_g_name.strip()), user['user_id'])
-                            )
-                            conn.commit()
-                            st.success(f"Group '{new_g_name}' successfully created!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to create group: {e}")
-                        finally:
-                            conn.close()
-                else:
-                    st.warning("Please enter a valid group name.")
-
-        conn = get_db_connection()
+    conn = get_db_connection()
         if conn:
             try:
                 cursor = conn.cursor(dictionary=True)
@@ -662,9 +637,8 @@ def render_enhanced_direct_messages(user: Dict[str, Any]):
                         JOIN users u ON gm.sender_id = u.user_id
                         WHERE gm.group_id = %s
                         ORDER BY gm.sent_at ASC
-                    """),(selected_group_id,)
-                  g_messages = cursor.fetchall()
-
+                    """, (selected_group_id,))
+                    g_messages = cursor.fetchall()
                     if not g_messages:
                         st.caption("No messages in this group yet. Start the conversation!")
                     else:
