@@ -1,6 +1,15 @@
 [theme]
-primaryColor="#f09433"
-backgroundColor="#FFFFFF"
-secondaryBackgroundColor="#F0F2F6"
-textColor="#000000"
-font="sans serif"
+# Primary accent for buttons, sliders, etc.
+primaryColor = "#FF4B4B"
+
+# Background color for the main content area
+backgroundColor = "#FFFFFF"
+
+# Background color for sidebar and navigation
+secondaryBackgroundColor = "#F0F2F6"
+
+# Text color
+textColor = "#262730"
+
+# Font family ("sans serif", "serif", or "monospace")
+font = "sans serif"
