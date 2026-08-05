@@ -6,6 +6,25 @@ import zoneinfo
 import logging
 import sys
 import re
+import streamlit as st
+import pymysql
+
+@st.cache_resource
+def get_db_connection():
+    try:
+        conn = pymysql.connect(
+            host="mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
+            user="avnadmin",
+            password="AVNS_iN1XY9WASRF1UWVhM6k",
+            database="defaultdb",
+            port=21354,
+            ssl={"ssl_mode": "REQUIRED"},
+            connect_timeout=5
+        )
+        return "mysql", conn
+    except Exception as e:
+        return "mysql", None
+
 
 @st.cache_resource
 def get_db_connection():
