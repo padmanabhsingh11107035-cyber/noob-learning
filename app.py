@@ -25,6 +25,26 @@ import time
 import hashlib
 from typing import Dict, List, Tuple, Optional, Any, Union
 import streamlit.components.v1 as components
+import streamlit as st
+import mysql.connector
+
+# --- PASTE THE FUNCTION HERE ---
+def get_db_connection():
+    try:
+        conn = mysql.connector.connect(
+            host=st.secrets["mysql"]["host"],
+            port=st.secrets["mysql"]["port"],
+            user=st.secrets["mysql"]["user"],
+            password=st.secrets["mysql"]["password"],
+            database=st.secrets["mysql"]["database"],
+            ssl_disabled=False
+        )
+        return conn
+    except Exception as e:
+        st.error(f"Database Connection Failure: {e}")
+        return None
+
+# --- REST OF YOUR APP CODE CONTINUES BELOW ---
 
 # --- LIVE TOP HEADER CLOCK ---
 components.html(
