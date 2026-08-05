@@ -8,6 +8,152 @@ import sys
 import re
 import streamlit as st
 import pymysql
+import time
+
+def render_live_chat(current_user):
+    st.markdown("### 💬 Direct Messages")
+    
+    # 1. Fetch users that the current user follows or is followed by
+    db_type, conn = get_db_connection()
+    if not conn:
+        st.error("Database connection failed.")
+        return
+        
+    try:
+        cursor = conn.cursor()
+        # Query to find connected users (following or followers)
+        cursor.execute("""
+            SELECT DISTINCT following_username FROM followers WHERE user_username = %s
+            UNION
+            SELECT DISTINCT user_username FROM followers WHERE following_username = %s
+            UNION
+            SELECT username FROM users WHERE username != %s
+        """, (current_user, current_user, current_user))
+        
+        connections = [row[0] for row in cursor.fetchall()]
+    except Exception as e:
+        # Fallback for SQLite if syntax differs
+        cursor.execute("""
+            SELECT DISTINCT following_username FROM followers WHERE user_username = ?
+            UNION
+            SELECT DISTINCT user_username FROM followers WHERE following_username = ?
+            UNION
+            SELECT username FROM users WHERE username != ?
+        """, (current_user, current_user, current_user))
+        connections = [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+    if not connections:
+        st.info("No other users found to chat with. Ask your friends to sign up!")
+        return
+
+    # 2. Sidebar or selectbox to choose chat partner
+    selected_chat_user = st.selectbox("Select a user to chat with:", connections)
+
+    st.markdown("---")
+
+    # 3. Custom CSS for Instagram-like chat bubbles
+    st.markdown("""
+        <style>
+        .chat-row { display: flex; margin-bottom: 10px; }
+        .chat-row.user { justify-content: flex-end; }
+        .chat-row.peer { justify-content: flex-start; }
+        .chat-bubble {
+            max-width: 65%;
+            padding: 10px 14px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+        .chat-bubble.user {
+            background: linear-gradient(135deg, #a855f7, #6366f1);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .chat-bubble.peer {
+            background: #f1f5f9;
+            color: #1e293b;
+            border-bottom-left-radius: 4px;
+        }
+        .chat-time {
+            font-size: 10px;
+            color: #94a3b8;
+            margin-top: 2px;
+            text-align: right;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # 4. Fetch message history between current_user and selected_chat_user
+    db_type, conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sender, receiver, message_text, timestamp FROM messages 
+            WHERE (sender = %s AND receiver = %s) OR (sender = %s AND receiver = %s)
+            ORDER BY timestamp ASC
+        """, (current_user, selected_chat_user, selected_chat_user, current_user))
+        messages = cursor.fetchall()
+    except Exception:
+        cursor.execute("""
+            SELECT sender, receiver, message_text, timestamp FROM messages 
+            WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
+            ORDER BY timestamp ASC
+        """, (current_user, selected_chat_user, selected_chat_user, current_user))
+        messages = cursor.fetchall()
+    finally:
+        conn.close()
+
+    # 5. Render message container
+    chat_container = st.container()
+    with chat_container:
+        for sender, receiver, msg_text, timestamp in messages:
+            is_me = (sender == current_user)
+            row_class = "user" if is_me else "peer"
+            bubble_class = "user" if is_me else "peer"
+            time_str = str(timestamp).split(" ")[1][:5] if timestamp else ""
+            
+            st.markdown(f"""
+                <div class="chat-row {row_class}">
+                    <div class="chat-bubble {bubble_class}">
+                        {msg_text}
+                        <div class="chat-time">{time_str}</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+    # 6. Message input box
+    with st.form(key="chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            new_msg = st.text_input("Message...", label_visibility="collapsed", placeholder=f"Message {selected_chat_user}...")
+        with col2:
+            send_btn = st.form_submit_button("Send")
+            
+        if send_btn and new_msg.strip():
+            db_type, conn = get_db_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO messages (sender, receiver, message_text) 
+                    VALUES (%s, %s, %s)
+                """, (current_user, selected_chat_user, new_msg.strip()))
+                conn.commit()
+            except Exception:
+                cursor.execute("""
+                    INSERT INTO messages (sender, receiver, message_text) 
+                    VALUES (?, ?, ?)
+                """, (current_user, selected_chat_user, new_msg.strip()))
+                conn.commit()
+            finally:
+                conn.close()
+            st.rerun()
+
+    # 7. Auto-refresh loop to poll new messages every 3 seconds
+    time.sleep(3)
+    st.rerun()
 
 @st.cache_resource
 @st.cache_resource
@@ -1311,7 +1457,7 @@ def render_settings_and_activity_hub(user_id: int):
     elif st.session_state.get("nav_tab") == "Reels":
         render_reels_viewer_page(user['user_id'])
     elif st.session_state.get("nav_tab") == "Chat":
-        pass
+    render_live_chat(st.session_state.get("username"))
     elif st.session_state.get("nav_tab") == "Profile":
         pass
     elif st.session_state.get("nav_tab") == "Settings":
@@ -1748,3 +1894,141 @@ def render_follower_stats_widget(profile_user_id: int, profile_username: str):
     finally:
         if conn:
             conn.close()
+##########################################################################################################################################################
+import time
+
+def render_live_chat(current_user):
+    st.markdown("### 💬 Direct Messages")
+    
+    db_type, conn = get_db_connection()
+    if not conn:
+        st.error("Database connection failed.")
+        return
+        
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT following_username FROM followers WHERE user_username = %s
+            UNION
+            SELECT DISTINCT user_username FROM followers WHERE following_username = %s
+            UNION
+            SELECT username FROM users WHERE username != %s
+        """, (current_user, current_user, current_user))
+        
+        connections = [row[0] for row in cursor.fetchall()]
+    except Exception as e:
+        cursor.execute("""
+            SELECT DISTINCT following_username FROM followers WHERE user_username = ?
+            UNION
+            SELECT DISTINCT user_username FROM followers WHERE following_username = ?
+            UNION
+            SELECT username FROM users WHERE username != ?
+        """, (current_user, current_user, current_user))
+        connections = [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+    if not connections:
+        st.info("No other users found to chat with. Ask your friends to sign up!")
+        return
+
+    selected_chat_user = st.selectbox("Select a user to chat with:", connections)
+
+    st.markdown("---")
+
+    st.markdown("""
+        <style>
+        .chat-row { display: flex; margin-bottom: 10px; }
+        .chat-row.user { justify-content: flex-end; }
+        .chat-row.peer { justify-content: flex-start; }
+        .chat-bubble {
+            max-width: 65%;
+            padding: 10px 14px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+        .chat-bubble.user {
+            background: linear-gradient(135deg, #a855f7, #6366f1);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .chat-bubble.peer {
+            background: #f1f5f9;
+            color: #1e293b;
+            border-bottom-left-radius: 4px;
+        }
+        .chat-time {
+            font-size: 10px;
+            color: #94a3b8;
+            margin-top: 2px;
+            text-align: right;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    db_type, conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sender, receiver, message_text, timestamp FROM messages 
+            WHERE (sender = %s AND receiver = %s) OR (sender = %s AND receiver = %s)
+            ORDER BY timestamp ASC
+        """, (current_user, selected_chat_user, selected_chat_user, current_user))
+        messages = cursor.fetchall()
+    except Exception:
+        cursor.execute("""
+            SELECT sender, receiver, message_text, timestamp FROM messages 
+            WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
+            ORDER BY timestamp ASC
+        """, (current_user, selected_chat_user, selected_chat_user, current_user))
+        messages = cursor.fetchall()
+    finally:
+        conn.close()
+
+    chat_container = st.container()
+    with chat_container:
+        for sender, receiver, msg_text, timestamp in messages:
+            is_me = (sender == current_user)
+            row_class = "user" if is_me else "peer"
+            bubble_class = "user" if is_me else "peer"
+            time_str = str(timestamp).split(" ")[1][:5] if timestamp else ""
+            
+            st.markdown(f"""
+                <div class="chat-row {row_class}">
+                    <div class="chat-bubble {bubble_class}">
+                        {msg_text}
+                        <div class="chat-time">{time_str}</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+    with st.form(key="chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            new_msg = st.text_input("Message...", label_visibility="collapsed", placeholder=f"Message {selected_chat_user}...")
+        with col2:
+            send_btn = st.form_submit_button("Send")
+            
+        if send_btn and new_msg.strip():
+            db_type, conn = get_db_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO messages (sender, receiver, message_text) 
+                    VALUES (%s, %s, %s)
+                """, (current_user, selected_chat_user, new_msg.strip()))
+                conn.commit()
+            except Exception:
+                cursor.execute("""
+                    INSERT INTO messages (sender, receiver, message_text) 
+                    VALUES (?, ?, ?)
+                """, (current_user, selected_chat_user, new_msg.strip()))
+                conn.commit()
+            finally:
+                conn.close()
+            st.rerun()
+
+    time.sleep(3)
+    st.rerun()
