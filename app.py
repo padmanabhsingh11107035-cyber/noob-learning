@@ -1160,3 +1160,202 @@ def render_settings_and_activity_hub(user_id: int):
         logger.error(f"Settings Hub Error: {e}")
     finally:
         conn.close()
+# ------------------ BOTTOM NAVIGATION LAYOUT (6 BUTTONS) ------------------
+    nav_cols = st.columns(6)
+    with nav_cols[0]:
+        if st.button("🏠 Home", use_container_width=True):
+            st.session_state.nav_tab = "Home"
+            st.session_state.viewing_profile_id = None
+            st.rerun()
+    with nav_cols[1]:
+        if st.button("🔍 Search", use_container_width=True):
+            st.session_state.nav_tab = "Search"
+            st.session_state.viewing_profile_id = None
+            st.rerun()
+    with nav_cols[2]:
+        if st.button("➕ Post", use_container_width=True):
+            st.session_state.nav_tab = "Post"
+            st.session_state.viewing_profile_id = None
+            st.rerun()
+    with nav_cols[3]:
+        if st.button("💬 Chat", use_container_width=True):
+            st.session_state.nav_tab = "Chat"
+            st.session_state.viewing_profile_id = None
+            st.rerun()
+    with nav_cols[4]:
+        if st.button("👤 Profile", use_container_width=True):
+            st.session_state.nav_tab = "Profile"
+            st.session_state.viewing_profile_id = user['user_id']
+            st.rerun()
+    with nav_cols[5]:
+        if st.button("⚙️ Settings", use_container_width=True):
+            st.session_state.nav_tab = "Settings"
+            st.session_state.viewing_profile_id = None
+            st.rerun()
+##################################################################################################################################################################
+# ==============================================================================
+# SARAHAH ROBOTICS AUTOMATED SETTINGS & AUTO-FOLLOW MODULE (Paste at the very last)
+# ==============================================================================
+
+def make_user_follow_saraah(user_id: int):
+    """Automatically forces any user to follow @SARAAH ROBOTICS instantly upon login."""
+    db_type, conn = get_db_connection()
+    if not conn:
+        return
+    try:
+        cursor = conn.cursor()
+        target_username = "SARAAH ROBOTICS"
+        
+        if db_type == "mysql":
+            cursor.execute("SELECT user_id FROM users WHERE username = %s LIMIT 1", (target_username,))
+            saraah_user = cursor.fetchone()
+            saraah_id = saraah_user['user_id'] if saraah_user else None
+        else:
+            cursor.execute("SELECT user_id FROM users WHERE username = ? LIMIT 1", (target_username,))
+            row = cursor.fetchone()
+            saraah_id = row[0] if row else None
+
+        if saraah_id and saraah_id != user_id:
+            if db_type == "mysql":
+                cursor.execute("""
+                    INSERT IGNORE INTO follows (follower_id, following_id, status, created_at) 
+                    VALUES (%s, %s, 'Accepted', %s)
+                """, (user_id, saraah_id, get_current_ist_time()))
+            else:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO follows (follower_id, following_id, status, created_at) 
+                    VALUES (?, ?, 'Accepted', ?)
+                """, (user_id, saraah_id, get_current_ist_time()))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error auto-following Saraah Robotics: {e}")
+    finally:
+        conn.close()
+
+def render_settings_page(user_id: int):
+    """Renders the dedicated Settings page for updating name, phone, email, password, profile pic, and birthday."""
+    db_type, conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+        if db_type == "mysql":
+            cursor.execute("SELECT * FROM users WHERE user_id = %s LIMIT 1", (user_id,))
+            user_row = cursor.fetchone()
+        else:
+            cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (user_id,))
+            row = cursor.fetchone()
+            user_row = dict(row) if row else None
+
+        if not user_row:
+            st.error("User profile data not found.")
+            return
+
+        st.subheader("⚙️ Settings and Activity")
+        st.write("Manage your account details, profile customization, and preferences.")
+        st.divider()
+
+        setting_option = st.selectbox(
+            "Select Setting Category",
+            [
+                "Edit Account Details (Name, Phone, Email, Password)",
+                "Update Profile Picture",
+                "Birthday Management"
+            ]
+        )
+
+        st.markdown("---")
+
+        if setting_option == "Edit Account Details (Name, Phone, Email, Password)":
+            st.markdown("### 👤 Edit Profile Information")
+            with st.form("settings_edit_credentials"):
+                new_name = st.text_input("Full Name", value=user_row.get('name', ''))
+                new_phone = st.text_input("Phone Number", value=user_row.get('phone_number', ''))
+                new_email = st.text_input("Email Address", value=user_row.get('email', ''))
+                new_password = st.text_input("New Password", type="password", placeholder="Leave blank to keep current password")
+                
+                submitted = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
+                if submitted:
+                    try:
+                        if db_type == "mysql":
+                            if new_password.strip():
+                                cursor.execute("""
+                                    UPDATE users SET name = %s, phone_number = %s, email = %s, password = %s 
+                                    WHERE user_id = %s
+                                """, (sanitize_input(new_name), sanitize_input(new_phone), sanitize_input(new_email), new_password.strip(), user_id))
+                            else:
+                                cursor.execute("""
+                                    UPDATE users SET name = %s, phone_number = %s, email = %s 
+                                    WHERE user_id = %s
+                                """, (sanitize_input(new_name), sanitize_input(new_phone), sanitize_input(new_email), user_id))
+                        else:
+                            if new_password.strip():
+                                cursor.execute("""
+                                    UPDATE users SET name = ?, phone_number = ?, email = ?, password = ? 
+                                    WHERE user_id = ?
+                                """, (sanitize_input(new_name), sanitize_input(new_phone), sanitize_input(new_email), new_password.strip(), user_id))
+                            else:
+                                cursor.execute("""
+                                    UPDATE users SET name = ?, phone_number = ?, email = ? 
+                                    WHERE user_id = ?
+                                """, (sanitize_input(new_name), sanitize_input(new_phone), sanitize_input(new_email), user_id))
+                        conn.commit()
+                        st.success("Account details updated successfully!")
+                        st.rerun()
+                    except Exception as err:
+                        st.error(f"Failed to update profile: {err}")
+
+        elif setting_option == "Update Profile Picture":
+            st.markdown("### 🖼️ Profile Picture")
+            current_pic = user_row.get('profile_pic')
+            if current_pic:
+                st.image(current_pic, width=150)
+            else:
+                st.info("No profile picture currently uploaded.")
+
+            pic_file = st.file_uploader("Upload new picture", type=["png", "jpg", "jpeg"], key="settings_page_pic_upload")
+            if pic_file is not None:
+                b_data = pic_file.read()
+                pic_base64 = f"data:{pic_file.type};base64,{base64.b64encode(b_data).decode()}"
+                if db_type == "mysql":
+                    cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_base64, user_id))
+                else:
+                    cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_base64, user_id))
+                conn.commit()
+                st.success("Profile picture updated successfully!")
+                st.rerun()
+
+        elif setting_option == "Birthday Information":
+            st.markdown("### 🎂 Birthday & Greetings")
+            current_bday = user_row.get('birthday') if isinstance(user_row, dict) else None
+            if not current_bday:
+                st.warning("Please provide your birthday so we can greet you on your special day!")
+            else:
+                st.info(f"Registered Birthday: {current_bday}")
+
+            with st.form("settings_birthday_form"):
+                bday_val = st.date_input("Select Birthday", value=datetime.date(2005, 1, 1))
+                sub_bday = st.form_submit_button("Save Birthday", use_container_width=True)
+                if sub_bday:
+                    bday_str = bday_val.strftime("%Y-%m-%d")
+                    try:
+                        if db_type == "mysql":
+                            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday DATE;")
+                            cursor.execute("UPDATE users SET birthday = %s WHERE user_id = %s", (bday_str, user_id))
+                        else:
+                            try:
+                                cursor.execute("ALTER TABLE users ADD COLUMN birthday TEXT;")
+                            except Exception:
+                                pass
+                            cursor.execute("UPDATE users SET birthday = ? WHERE user_id = ?", (bday_str, user_id))
+                        conn.commit()
+                        st.success("Birthday saved successfully!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Error saving birthday: {ex}")
+
+    except Exception as e:
+        logger.error(f"Settings page error: {e}")
+    finally:
+        conn.close()
