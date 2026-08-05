@@ -724,28 +724,35 @@ else:
         db_type, conn = get_db_connection()
         if conn:
             try:
+                cursor = conn.cursor(dictionary=True) if db_type == "mysql" else conn.cursor()
+                
+                # Step 1: Get all user IDs of accepted friends via simple individual queries
                 if db_type == "mysql":
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("""
-                        SELECT DISTINCT u.user_id, u.username FROM users u 
-                        WHERE u.user_id IN (
-                            SELECT following_id FROM follows WHERE follower_id = %s AND status = 'Accepted'
-                            UNION
-                            SELECT follower_id FROM follows WHERE following_id = %s AND status = 'Accepted'
-                        )
-                    """, (user['user_id'], user['user_id']))
-                    friends = cursor.fetchall()
+                    cursor.execute("SELECT following_id FROM follows WHERE follower_id = %s AND status = 'Accepted'", (user['user_id'],))
+                    following = [row['following_id'] for row in cursor.fetchall()]
+                    
+                    cursor.execute("SELECT follower_id FROM follows WHERE following_id = %s AND status = 'Accepted'", (user['user_id'],))
+                    followers = [row['follower_id'] for row in cursor.fetchall()]
                 else:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT DISTINCT u.user_id, u.username FROM users u 
-                        WHERE u.user_id IN (
-                            SELECT following_id FROM follows WHERE follower_id = ? AND status = 'Accepted'
-                            UNION
-                            SELECT follower_id FROM follows WHERE following_id = ? AND status = 'Accepted'
-                        )
-                    """, (user['user_id'], user['user_id']))
-                    friends = [dict(row) for row in cursor.fetchall()]
+                    cursor.execute("SELECT following_id FROM follows WHERE follower_id = ? AND status = 'Accepted'", (user['user_id'],))
+                    following = [dict(row)['following_id'] for row in cursor.fetchall()]
+                    
+                    cursor.execute("SELECT follower_id FROM follows WHERE following_id = ? AND status = 'Accepted'", (user['user_id'],))
+                    followers = [dict(row)['follower_id'] for row in cursor.fetchall()]
+
+                friend_ids = list(set(following + followers))
+                
+                friends = []
+                if friend_ids:
+                    # Step 2: Fetch usernames for those friend IDs
+                    format_strings = ','.join(['%s' if db_type == "mysql" else '?'] * len(friend_ids))
+                    query = f"SELECT user_id, username FROM users WHERE user_id IN ({format_strings})"
+                    cursor.execute(query, tuple(friend_ids))
+                    
+                    if db_type == "mysql":
+                        friends = cursor.fetchall()
+                    else:
+                        friends = [dict(row) for row in cursor.fetchall()]
 
                 if not friends:
                     st.info("You can only chat with users who are your friends (mutual follow or accepted request).")
