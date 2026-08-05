@@ -1585,3 +1585,73 @@ def render_reels_viewer_page(current_user_id: int):
         st.error("Could not load feed.")
     finally:
         conn.close()
+# ==============================================================================
+# FOLLOWER & FOLLOWING DISPLAY WIDGET (Paste at the very last line of your file)
+# ==============================================================================
+def render_follower_stats_widget(profile_user_id: int, profile_username: str):
+    """Displays live follower/following counts with special override for SARAAH_ROBOTICS."""
+    db_type, conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor(dictionary=True) if db_type == "mysql" else conn.cursor()
+        
+        # Check if table exists, create if missing
+        if db_type == "mysql":
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS follows (
+                    follower_id INT,
+                    following_id INT,
+                    PRIMARY KEY (follower_id, following_id)
+                )
+            """)
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS follows (
+                    follower_id INTEGER,
+                    following_id INTEGER,
+                    PRIMARY KEY (follower_id, following_id)
+                )
+            """)
+        conn.commit()
+
+        # Get actual follower count from database
+        if db_type == "mysql":
+            cursor.execute("SELECT COUNT(*) as cnt FROM follows WHERE following_id = %s", (profile_user_id,))
+            res = cursor.fetchone()
+            db_followers = res['cnt'] if isinstance(res, dict) else res[0]
+            
+            cursor.execute("SELECT COUNT(*) as cnt FROM follows WHERE follower_id = %s", (profile_user_id,))
+            res_f = cursor.fetchone()
+            following_count = res_f['cnt'] if isinstance(res_f, dict) else res_f[0]
+        else:
+            cursor.execute("SELECT COUNT(*) FROM follows WHERE following_id = ?", (profile_user_id,))
+            db_followers = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM follows WHERE follower_id = ?", (profile_user_id,))
+            following_count = cursor.fetchone()[0]
+
+        # Apply base target of 56,780 for SARAAH_ROBOTICS plus any real new database followers
+        if str(profile_username).strip().upper() == "SARAAH_ROBOTICS":
+            # If database has followers, add them to the base value dynamically
+            followers_count = 56780 + db_followers
+        else:
+            followers_count = db_followers
+
+        # Display Metrics Layout
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Followers", f"{followers_count:,}")
+        with col2:
+            st.metric("Following", f"{following_count:,}")
+
+    except Exception as e:
+        # Fallback view if database tables are uninitialized
+        if str(profile_username).strip().upper() == "SARAAH_ROBOTICS":
+            st.metric("Followers", "56,780")
+        else:
+            st.metric("Followers", "0")
+        st.metric("Following", "0")
+    finally:
+        if conn:
+            conn.close()
