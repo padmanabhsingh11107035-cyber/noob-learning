@@ -737,8 +737,8 @@ else:
                     followers = [row[0] for row in cursor.fetchall() if row[0]]
 
                     friend_ids = list(set(following + followers))
-                except Exception as table_err:
-                    st.warning("The 'follows' table is not yet set up properly in your database.")
+                except Exception:
+                    pass
                 
                 friends = []
                 if friend_ids:
@@ -796,7 +796,7 @@ else:
                                         conn.commit()
                                         st.rerun()
                                     except Exception as msg_err:
-                                        st.error(f"Error sending message. Ensure the 'messages' table exists. Details: {msg_err}")
+                                        st.error(f"Error sending message: {msg_err}")
             finally:
                 conn.close()
     # ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
