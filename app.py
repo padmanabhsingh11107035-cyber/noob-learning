@@ -1199,7 +1199,19 @@ def render_settings_and_activity_hub(user_id: int):
             st.session_state.viewing_profile_id = None
             st.rerun()
 
-    # 2. Route checker for Settings
+    # 2. Route checker for Settings#
+    if st.session_state.get("nav_tab") == "Home":
+        pass
+    elif st.session_state.get("nav_tab") == "Search":
+        pass
+    elif st.session_state.get("nav_tab") == "Post":
+        pass
+    elif st.session_state.get("nav_tab") == "Reels":
+        render_reels_viewer_page(user['user_id'])
+    elif st.session_state.get("nav_tab") == "Chat":
+        pass
+    elif st.session_state.get("nav_tab") == "Profile":
+        pass
     elif st.session_state.get("nav_tab") == "Settings":
         render_settings_page(user['user_id'])
 ##################################################################################################################################################################
