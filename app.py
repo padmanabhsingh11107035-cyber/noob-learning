@@ -864,13 +864,16 @@ else:
                             if st.button("Follow"):
                                 status = "Pending" if profile_user['account_type'] == 'Private' else "Accepted"
                                 # Safe fetch for follow relationship
-    cursor.execute("""
-        SELECT * FROM follows 
-        WHERE follower_id = %s AND following_id = %s
-    """ if db_type == "mysql" else """
-        SELECT * FROM follows 
-        WHERE follower_id = ? AND following_id = ?
-    """, (user['user_id'], profile_user['user_id']))
+    if db_type == "mysql":
+        cursor.execute("""
+            SELECT * FROM follows 
+            WHERE follower_id = %s AND following_id = %s
+        """, (user['user_id'], profile_user['user_id']))
+    else:
+        cursor.execute("""
+            SELECT * FROM follows 
+            WHERE follower_id = ? AND following_id = ?
+        """, (user['user_id'], profile_user['user_id']))
     
     row = cursor.fetchone()
     follow_rel = dict(row) if row else None
