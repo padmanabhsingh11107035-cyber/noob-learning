@@ -814,7 +814,7 @@ else:
                                         st.error(f"Error sending message: {msg_err}")
             finally:
                 conn.close()
-    # ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
+# ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
     elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
         profile_id = st.session_state.viewing_profile_id or user['user_id']
         db_type, conn = get_db_connection()
@@ -862,62 +862,33 @@ else:
 
                         if not follow_rel:
                             if st.button("Follow"):
-                                status = "Pending" if profile_user['account_type'] == 'Private' else "Accepted"
-                                # Safe fetch for follow relationship
-    if db_type == "mysql":
-        cursor.execute("""
-            SELECT * FROM follows 
-            WHERE follower_id = %s AND following_id = %s
-        """, (user['user_id'], profile_user['user_id']))
-    else:
-        cursor.execute("""
-            SELECT * FROM follows 
-            WHERE follower_id = ? AND following_id = ?
-        """, (user['user_id'], profile_user['user_id']))
-    
-    row = cursor.fetchone()
-    follow_rel = dict(row) if row else None
-
-    if not follow_rel:
-        if st.button("Follow"):
-            status = "Pending" if profile_user.get('account_type') == 'Private' else "Accepted"
-            if db_type == "mysql":
-                cursor.execute("""
-                    INSERT INTO follows (follower_id, following_id, status, created_at) 
-                    VALUES (%s, %s, %s, %s)
-                """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
-            else:
-                cursor.execute("""
-                    INSERT INTO follows (follower_id, following_id, status, created_at) 
-                    VALUES (?, ?, ?, ?)
-                """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
-            conn.commit()
-            st.rerun()
-    else:
-        # Use .get() to prevent any future KeyErrors
-        rel_status = follow_rel.get('status', 'Accepted')
-        if rel_status == 'Pending':
-            st.info("Request Pending")
-        else:
-            if st.button("Unfollow"):
-                # Add your unfollow delete query here
-                pass
-                                    cursor.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (?, ?, ?, ?)",
-                                                   (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
-                                conn.commit()
-                                st.rerun()
-                        elif follow_rel['status'] == 'Pending':
-                            st.button("Requested", disabled=True)
-                        else:
-                            if st.button("Unfollow"):
+                                status = "Pending" if profile_user.get('account_type') == 'Private' else "Accepted"
                                 if db_type == "mysql":
-                                    cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s",
-                                                   (user['user_id'], profile_user['user_id']))
+                                    cursor.execute("""
+                                        INSERT INTO follows (follower_id, following_id, status, created_at) 
+                                        VALUES (%s, %s, %s, %s)
+                                    """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
                                 else:
-                                    cursor.execute("DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
-                                                   (user['user_id'], profile_user['user_id']))
+                                    cursor.execute("""
+                                        INSERT INTO follows (follower_id, following_id, status, created_at) 
+                                        VALUES (?, ?, ?, ?)
+                                    """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
                                 conn.commit()
                                 st.rerun()
+                        else:
+                            rel_status = follow_rel.get('status', 'Accepted')
+                            if rel_status == 'Pending':
+                                st.button("Requested", disabled=True)
+                            else:
+                                if st.button("Unfollow"):
+                                    if db_type == "mysql":
+                                        cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s",
+                                                       (user['user_id'], profile_user['user_id']))
+                                    else:
+                                        cursor.execute("DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
+                                                       (user['user_id'], profile_user['user_id']))
+                                    conn.commit()
+                                    st.rerun()
 
                     st.divider()
 
