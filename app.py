@@ -638,7 +638,7 @@ else:
             finally:
                 conn.close()
 
-    # ------------------ TAB 2: SEARCH & DISCOVER ------------------
+  # ------------------ TAB 2: SEARCH & DISCOVER ------------------
     elif st.session_state.nav_tab == "Search":
         st.subheader("Search Users")
         search_query = st.text_input("Search ID or Username...")
@@ -647,23 +647,23 @@ else:
             db_type, conn = get_db_connection()
             if conn:
                 try:
-                    # Check if the query is a number to search by ID or Username
+                    wildcard_query = f"%{search_query}%"
                     if search_query.isdigit():
-                        query = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE (user_id = %s OR username LIKE %s) AND user_id != %s"
-                        params = (int(search_query), f"%{search_query}%", user['user_id'])
-                        sqlite_query = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE (user_id = ? OR username LIKE ?) AND user_id != ?"
+                        params = (int(search_query), wildcard_query, user['user_id'])
+                        mysql_sql = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE (user_id = %s OR username LIKE %s) AND user_id != %s"
+                        sqlite_sql = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE (user_id = ? OR username LIKE ?) AND user_id != ?"
                     else:
-                        query = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE %s AND user_id != %s"
-                        params = (f"%{search_query}%", user['user_id'])
-                        sqlite_query = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE ? AND user_id != ?"
+                        params = (wildcard_query, user['user_id'])
+                        mysql_sql = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE %s AND user_id != %s"
+                        sqlite_sql = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE ? AND user_id != ?"
 
                     if db_type == "mysql":
                         cursor = conn.cursor(dictionary=True)
-                        cursor.execute(query, params)
+                        cursor.execute(mysql_sql, params)
                         results = cursor.fetchall()
                     else:
                         cursor = conn.cursor()
-                        cursor.execute(sqlite_query, params)
+                        cursor.execute(sqlite_sql, params)
                         results = [dict(row) for row in cursor.fetchall()]
 
                     if not results:
@@ -680,10 +680,9 @@ else:
                                     st.rerun()
                             st.divider()
                 except Exception as e:
-                    st.error("An error occurred while searching. Please try again.")
+                    st.error(f"Search Error: {e}")
                 finally:
                     conn.close()
-
     # ------------------ TAB 3: CREATE POST ------------------
     elif st.session_state.nav_tab == "Post":
         st.subheader("Create New Post / Reel")
