@@ -1098,16 +1098,6 @@ else:
                         conn.close()
             else:
                 st.warning("Please enter a caption before sharing.")
-    with app_tab_create:
-    # Create code
-    ...
-
-   with app_tab_reels:
-    # Reels code
-    ...
-
-   with app_tab_msg:
-    # Message code
 
     # ==========================================================================
     # TAB 5: DIRECT & GROUP MESSAGING CENTER
