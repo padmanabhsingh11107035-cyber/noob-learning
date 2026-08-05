@@ -32,11 +32,11 @@ import mysql.connector
 def get_db_connection():
     try:
         conn = mysql.connector.connect(
-            host=st.secrets["mysql"]["host"],
-            port=st.secrets["mysql"]["port"],
-            user=st.secrets["mysql"]["user"],
-            password=st.secrets["mysql"]["password"],
-            database=st.secrets["mysql"]["database"],
+            host="mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
+            port=21354,
+            user="avnadmin",
+            password="AVNS_iN1XY9WAsRF1UWVhM6k",
+            database="defaultdb",
             ssl_disabled=False
         )
         return conn
@@ -1362,13 +1362,26 @@ updateClock();
 # Render the component in your app layout
 components.html(live_clock_html, height=45)
 
-with app_tab_reels:
 
+# 1. Create the tabs first (do this only once)
+app_tab_home, app_tab_explore, app_tab_create, app_tab_reels, app_tab_msg = st.tabs([
+    "🏠 Home", 
+    "🔍 Explore", 
+    "➕ Create", 
+    "🎬 Reels", 
+    "💬 Messages"
+])
+
+# 2. Then use them separately like this:
+with app_tab_home:
+    st.write("Welcome to Home")
+
+with app_tab_reels:
     st.markdown(
         '<p class="main-header">🎬 Community Reels</p>',
         unsafe_allow_html=True
     )
-
+    st.write("Watch reels shared by the community or upload your own.")
     st.write("Watch reels shared by the community or upload your own.")
 
     # ================= Upload Reel =================
