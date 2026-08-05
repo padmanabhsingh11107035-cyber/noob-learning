@@ -988,7 +988,17 @@ else:
             finally:
                 conn.close()
 # ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
-    if st.form_submit_button("Update Profile"):
+with st.form("edit_profile_form"):
+    new_name = st.text_input("Name", value=user.get('name', '') or '', key="edit_name_input")
+    new_bio = st.text_area("Bio", value=user.get('bio', '') or '', key="edit_bio_input")
+    new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18), key="edit_age_input")
+    gender_options = ["Male", "Female", "Other", "Prefer not to say"]
+    current_gender = user.get('gender')
+    gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
+    new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
+    new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '', key="edit_birthdate_input")
+
+                                if st.form_submit_button("Update Profile"):
                                     success = safe_update_user_profile(
                                         user['user_id'], 
                                         new_name, 
