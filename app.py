@@ -638,7 +638,7 @@ else:
             finally:
                 conn.close()
 
-  # ------------------ TAB 2: SEARCH & DISCOVER ------------------
+ # ------------------ TAB 2: SEARCH & DISCOVER ------------------
     elif st.session_state.nav_tab == "Search":
         st.subheader("Search Users")
         search_query = st.text_input("Search ID or Username...")
@@ -650,12 +650,12 @@ else:
                     wildcard_query = f"%{search_query}%"
                     if search_query.isdigit():
                         params = (int(search_query), wildcard_query, user['user_id'])
-                        mysql_sql = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE (user_id = %s OR username LIKE %s) AND user_id != %s"
-                        sqlite_sql = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE (user_id = ? OR username LIKE ?) AND user_id != ?"
+                        mysql_sql = "SELECT user_id, username, account_type, profile_pic FROM users WHERE (user_id = %s OR username LIKE %s) AND user_id != %s"
+                        sqlite_sql = "SELECT user_id, username, account_type, profile_pic FROM users WHERE (user_id = ? OR username LIKE ?) AND user_id != ?"
                     else:
                         params = (wildcard_query, user['user_id'])
-                        mysql_sql = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE %s AND user_id != %s"
-                        sqlite_sql = "SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE ? AND user_id != ?"
+                        mysql_sql = "SELECT user_id, username, account_type, profile_pic FROM users WHERE username LIKE %s AND user_id != %s"
+                        sqlite_sql = "SELECT user_id, username, account_type, profile_pic FROM users WHERE username LIKE ? AND user_id != ?"
 
                     if db_type == "mysql":
                         cursor = conn.cursor(dictionary=True)
@@ -672,7 +672,7 @@ else:
                         for u in results:
                             col_u1, col_u2 = st.columns([3, 1])
                             with col_u1:
-                                st.markdown(f"**@{u['username']}** (ID: {u['user_id']}) - {u['name'] or 'User'} - *{u['account_type']}*")
+                                st.markdown(f"**@{u['username']}** (ID: {u['user_id']}) - *{u.get('account_type', 'User')}*")
                             with col_u2:
                                 if st.button("View Profile", key=f"view_{u['user_id']}"):
                                     st.session_state.viewing_profile_id = u['user_id']
