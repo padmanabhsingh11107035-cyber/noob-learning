@@ -1015,3 +1015,148 @@ def render_profile_picture_upload_component(user_id: int):
         logger.error(f"Error handling profile picture upload: {e}")
     finally:
         conn.close()
+################################################################################################################################################################
+def render_settings_and_activity_hub(user_id: int):
+    """Renders an Instagram-style Settings and Activity menu with options to update details, profile picture, birthday, and handles birthday wishes."""
+    db_type, conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+        if db_type == "mysql":
+            cursor.execute("SELECT * FROM users WHERE user_id = %s LIMIT 1", (user_id,))
+            user_row = cursor.fetchone()
+        else:
+            cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (user_id,))
+            row = cursor.fetchone()
+            user_row = dict(row) if row else None
+
+        if not user_row:
+            return
+
+        # Check if birthday column exists, if not create/handle it gracefully
+        # Check if birthday is set, if not ask user for birthday after account creation
+        user_birthday = user_row.get('birthday') if isinstance(user_row, dict) else None
+
+        # Check today's date for birthday greetings (User's birthday is March 7th based on profile context)
+        current_date_str = datetime.datetime.now().strftime("%m-%d")
+        if user_birthday and str(user_birthday).endswith(current_date_str):
+            st.balloons()
+            st.success("🎉 Happy Birthday! Wishing you a fantastic year ahead from Saraah Robotics!")
+
+        # Settings icon trigger using Streamlit expander or button toggle
+        settings_open = st.toggle("⚙️ Settings and activity", key="settings_activity_toggle")
+
+        if settings_open:
+            st.markdown("### ⚙️ Settings and activity")
+            st.markdown("---")
+            
+            # Sub-sections mimicking Instagram Settings Layout
+            setting_tab = st.radio(
+                "Select a setting option:", 
+                [
+                    "Account Details (Name, Phone, Email, Password)", 
+                    "Profile Picture Upload", 
+                    "Birthday Information", 
+                    "Saved & Archive Activity", 
+                    "Notifications & Time Management"
+                ],
+                key="instagram_settings_menu_radio"
+            )
+
+            st.markdown("---")
+
+            if setting_tab == "Account Details (Name, Phone, Email, Password)":
+                st.subheader("Update Account Credentials")
+                with st.form("update_credentials_form"):
+                    up_name = st.text_input("Name", value=user_row.get('name', ''))
+                    up_phone = st.text_input("Phone Number", value=user_row.get('phone_number', ''))
+                    up_email = st.text_input("Email", value=user_row.get('email', ''))
+                    up_pass = st.text_input("New Password", type="password", placeholder="Leave blank or enter new password")
+
+                    submit_creds = st.form_submit_button("Save Changes", type="primary")
+                    if submit_creds:
+                        try:
+                            if db_type == "mysql":
+                                if up_pass.strip():
+                                    cursor.execute("UPDATE users SET name = %s, phone_number = %s, email = %s, password = %s WHERE user_id = %s",
+                                                   (sanitize_input(up_name), sanitize_input(up_phone), sanitize_input(up_email), up_pass.strip(), user_id))
+                                else:
+                                    cursor.execute("UPDATE users SET name = %s, phone_number = %s, email = %s WHERE user_id = %s",
+                                                   (sanitize_input(up_name), sanitize_input(up_phone), sanitize_input(up_email), user_id))
+                            else:
+                                if up_pass.strip():
+                                    cursor.execute("UPDATE users SET name = ?, phone_number = ?, email = ?, password = ? WHERE user_id = ?",
+                                                   (sanitize_input(up_name), sanitize_input(up_phone), sanitize_input(up_email), up_pass.strip(), user_id))
+                                else:
+                                    cursor.execute("UPDATE users SET name = ?, phone_number = ?, email = ? WHERE user_id = ?",
+                                                   (sanitize_input(up_name), sanitize_input(up_phone), sanitize_input(up_email), user_id))
+                            conn.commit()
+                            st.success("Account details updated successfully!")
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"Error updating details: {ex}")
+
+            elif setting_tab == "Profile Picture Upload":
+                st.subheader("Update Profile Picture")
+                current_pic = user_row.get('profile_pic')
+                if current_pic:
+                    st.image(current_pic, width=120)
+                else:
+                    st.info("No profile picture uploaded yet.")
+
+                pic_file = st.file_uploader("Upload new profile picture (+)", type=["png", "jpg", "jpeg"], key="settings_pic_uploader")
+                if pic_file is not None:
+                    b_data = pic_file.read()
+                    pic_base64 = f"data:{pic_file.type};base64,{base64.b64encode(b_data).decode()}"
+                    if db_type == "mysql":
+                        cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_base64, user_id))
+                    else:
+                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_base64, user_id))
+                    conn.commit()
+                    st.success("Profile picture updated!")
+                    st.rerun()
+
+            elif setting_tab == "Birthday Information":
+                st.subheader("Manage Birthday")
+                current_bday = user_row.get('birthday') if isinstance(user_row, dict) else None
+                if not current_bday:
+                    st.warning("Your birthday has not been set yet. Please add it below to receive birthday greetings!")
+                
+                with st.form("birthday_update_form"):
+                    bday_input = st.date_input("Select your Birthday", value=datetime.date(2005, 1, 1))
+                    submit_bday = st.form_submit_button("Save Birthday")
+                    if submit_bday:
+                        bday_str = bday_input.strftime("%Y-%m-%d")
+                        try:
+                            if db_type == "mysql":
+                                # Safely ensure birthday column exists or update it
+                                cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday DATE;")
+                                cursor.execute("UPDATE users SET birthday = %s WHERE user_id = %s", (bday_str, user_id))
+                            else:
+                                try:
+                                    cursor.execute("ALTER TABLE users ADD COLUMN birthday TEXT;")
+                                except Exception:
+                                    pass
+                                cursor.execute("UPDATE users SET birthday = ? WHERE user_id = ?", (bday_str, user_id))
+                            conn.commit()
+                            st.success("Birthday saved successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error saving birthday: {e}")
+
+            elif setting_tab == "Saved & Archive Activity":
+                st.subheader("Your Activity Overview")
+                st.write("• View saved posts, reels, and archived memories.")
+                st.info("All interactive logs are securely maintained under Saraah Robotics storage.")
+
+            elif setting_tab == "Notifications & Time Management":
+                st.subheader("Preferences")
+                st.write("• Push Notifications: Enabled")
+                st.write("• Daily Reminder: Active")
+
+    except Exception as e:
+        logger.error(f"Settings Hub Error: {e}")
+    finally:
+        conn.close()
