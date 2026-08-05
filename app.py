@@ -728,16 +728,20 @@ else:
                     cursor = conn.cursor(dictionary=True)
                     cursor.execute("""
                         SELECT u.user_id, u.username FROM users u 
-                        JOIN follows f ON (f.follower_id = %s AND f.following_id = u.user_id AND f.status = 'Accepted')
-                        OR (f.following_id = %s AND f.follower_id = u.user_id AND f.status = 'Accepted')
+                        JOIN follows f ON f.following_id = u.user_id AND f.follower_id = %s AND f.status = 'Accepted'
+                        UNION
+                        SELECT u.user_id, u.username FROM users u 
+                        JOIN follows f ON f.follower_id = u.user_id AND f.following_id = %s AND f.status = 'Accepted'
                     """, (user['user_id'], user['user_id']))
                     friends = cursor.fetchall()
                 else:
                     cursor = conn.cursor()
                     cursor.execute("""
                         SELECT u.user_id, u.username FROM users u 
-                        JOIN follows f ON (f.follower_id = ? AND f.following_id = u.user_id AND f.status = 'Accepted')
-                        OR (f.following_id = ? AND f.follower_id = u.user_id AND f.status = 'Accepted')
+                        JOIN follows f ON f.following_id = u.user_id AND f.follower_id = ? AND f.status = 'Accepted'
+                        UNION
+                        SELECT u.user_id, u.username FROM users u 
+                        JOIN follows f ON f.follower_id = u.user_id AND f.following_id = ? AND f.status = 'Accepted'
                     """, (user['user_id'], user['user_id']))
                     friends = [dict(row) for row in cursor.fetchall()]
 
