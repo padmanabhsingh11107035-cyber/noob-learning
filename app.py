@@ -259,7 +259,10 @@ def setup_database_schema():
         finally:
             conn.close()
 
-setup_database_schema()
+try:
+    setup_database_schema()
+except Exception as e:
+    st.warning(f"Database sync skipped: {e}")
 
 # ==============================================================================
 # 3. SESSION STATE MANAGEMENT
