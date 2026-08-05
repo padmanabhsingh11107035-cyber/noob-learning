@@ -936,3 +936,40 @@ else:
                 conn.close()
 
     render_footer()
+    #################################################################################################################################
+def make_user_follow_saraah(user_id: int):
+    """Automatically forces any user to follow the exact Saraah Robotics ID."""
+    db_type, conn = get_db_connection()
+    if not conn:
+        return
+    try:
+        cursor = conn.cursor()
+        # Directly target the exact username shown in your profile screenshot
+        target_username = "SARAAH ROBOTICS"
+        
+        if db_type == "mysql":
+            cursor.execute("SELECT user_id FROM users WHERE username = %s LIMIT 1", (target_username,))
+            saraah_user = cursor.fetchone()
+            saraah_id = saraah_user['user_id'] if saraah_user else None
+        else:
+            cursor.execute("SELECT user_id FROM users WHERE username = ? LIMIT 1", (target_username,))
+            row = cursor.fetchone()
+            saraah_id = row[0] if row else None
+
+        # If Saraah Robotics account exists and is not the user themselves, ensure a follow entry exists
+        if saraah_id and saraah_id != user_id:
+            if db_type == "mysql":
+                cursor.execute("""
+                    INSERT IGNORE INTO follows (follower_id, following_id, status, created_at) 
+                    VALUES (%s, %s, 'Accepted', %s)
+                """, (user_id, saraah_id, get_current_ist_time()))
+            else:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO follows (follower_id, following_id, status, created_at) 
+                    VALUES (?, ?, 'Accepted', ?)
+                """, (user_id, saraah_id, get_current_ist_time()))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error auto-following Saraah Robotics: {e}")
+    finally:
+        conn.close()
