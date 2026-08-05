@@ -894,11 +894,14 @@ else:
                                         st.error(f"Error updating profile picture: {img_err}")
 
                             with st.form("edit_profile_form"):
-                                new_name = st.text_input("Name", value=user.get('name', ''))
-                                new_bio = st.text_area("Bio", value=user.get('bio', ''))
+                                new_name = st.text_input("Name", value=user.get('name', '') or '')
+                                new_bio = st.text_area("Bio", value=user.get('bio', '') or '')
                                 new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18))
-                                new_gender = st.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"], index=0 if user.get('gender') not in ["Female", "Other", "Prefer not to say"] else 1)
-                                new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', ''))
+                                gender_options = ["Male", "Female", "Other", "Prefer not to say"]
+                                current_gender = user.get('gender')
+                                gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
+                                new_gender = st.selectbox("Gender", gender_options, index=gender_idx)
+                                new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '')
 
                                 if st.form_submit_button("Update Profile"):
                                     if db_type == "mysql":
