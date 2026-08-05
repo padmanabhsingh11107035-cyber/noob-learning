@@ -791,6 +791,38 @@ else:
     elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
         profile_id = st.session_state.viewing_profile_id or user['user_id']
         db_type, conn = get_db_connection()
+        # ==============================================================================
+# PROFILE PICTURE UPDATE WIDGET (Add inside your Edit Profile Details section)
+# ==============================================================================
+st.markdown("### Update Profile Picture")
+uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
+
+if uploaded_pic is not None:
+    # Preview the uploaded image
+    st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
+    
+    if st.button("Save Profile Picture", key="save_profile_pic_btn"):
+        db_type, conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True) if db_type == "mysql" else conn.cursor()
+                
+                # Read image bytes to save directly to the database blob/longtext column
+                pic_bytes = uploaded_pic.getvalue()
+                
+                if db_type == "mysql":
+                    cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
+                else:
+                    cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
+                
+                conn.commit()
+                st.success("Profile picture updated successfully! Refreshing...")
+                st.rerun()
+            except Exception as e:
+                # Fallback if profile_pic column format needs text URL or handling varies
+                st.error(f"Error updating profile picture: {e}")
+            finally:
+                conn.close()
         if conn:
             try:
                 if db_type == "mysql":
