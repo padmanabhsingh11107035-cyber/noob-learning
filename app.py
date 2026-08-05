@@ -1,15 +1,3 @@
-"""
-================================================================================
-                        NOOB LEARNING - ENTERPRISE PLATFORM
-================================================================================
-Module Name: app.py
-Description: Full-stack Streamlit social learning & community application.
-Includes: Authentication, Feed Engine, Advanced Direct & Group Messaging,
-          Interactive Profiles, Custom Styling Engine, System Diagnostics,
-          Database Auto-migrations, and AI Support Assistant integration.
-================================================================================
-"""
-
 import streamlit as st
 import streamlit.components.v1 as components
 import mysql.connector
@@ -24,27 +12,6 @@ import json
 import time
 import hashlib
 from typing import Dict, List, Tuple, Optional, Any, Union
-import streamlit.components.v1 as components
-import streamlit as st
-import mysql.connector
-
-# --- PASTE THE FUNCTION HERE ---
-def get_db_connection():
-    try:
-        conn = mysql.connector.connect(
-            host="mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
-            port=21354,
-            user="avnadmin",
-            password="AVNS_iN1XY9WAsRF1UWVhM6k",
-            database="defaultdb",
-            ssl_disabled=False
-        )
-        return conn
-    except Exception as e:
-        st.error(f"Database Connection Failure: {e}")
-        return None
-
-# --- REST OF YOUR APP CODE CONTINUES BELOW ---
 
 # --- LIVE TOP HEADER CLOCK ---
 components.html(
@@ -842,6 +809,198 @@ else:
     my_followers_count = get_follower_count(user['user_id'])
     my_following_count = get_following_count(user['user_id'])
 
+    # ------ SIDEBAR / NAVIGATION & USER PROFILE HEADER ------
+    with st.sidebar:
+        st.write(f"Logged in as: **@{user['username']}**")
+        if st.button("🚪 Log Out", use_container_width=True):
+            st.session_state.user = None
+            st.rerun()
+
+    # ------ MAIN APP TABS ------
+     (
+    app_tab_feed,
+    app_tab_search,
+    app_tab_friends,
+    app_tab_create,
+    app_tab_reels,
+    app_tab_msg,
+    app_tab_profile,
+    app_tab_chatway,
+) = st.tabs([
+    "🏠 Feed",
+    "🔍 Search",
+    "👥 Add Friends",
+    "➕ Create",
+    "🎬 Reels",
+    "💬 Direct",
+    "👤 Profile",
+    "🤖 AI Support"
+])
+    with tab1:
+        st.subheader("📢 Community Feed")
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("""
+                    SELECT p.*, u.username, u.profile_pic 
+                    FROM posts p 
+                    JOIN users u ON p.user_id = u.user_id 
+                    ORDER BY p.created_at DESC
+                """)
+                posts = cursor.fetchall()
+
+                if not posts:
+                    st.info("No posts found. Be the first to share something!")
+                else:
+                    for post in posts:
+                        with st.container():
+                            col_ava, col_info = st.columns([1, 10])
+                            with col_ava:
+                                render_html_image(get_user_pic(post), width=35, height=35)
+                            with col_info:
+                                st.markdown(f"**@{post['username']}** • *{format_to_ist(post['created_at'])}*")
+                            
+                            if post['caption']:
+                                st.write(post['caption'])
+                            
+                            if post['media_url']:
+                                if "data:image" in post['media_url'] or post['media_url'].startswith("http"):
+                                    st.image(post['media_url'], use_container_width=True)
+                            
+                            # Post interaction tools (Like / Delete / Edit)
+                            col_l, col_r = st.columns([1, 5])
+                            with col_l:
+                                if st.button("❤️", key=f"like_{post['post_id']}"):
+                                    c_like = conn.cursor()
+                                    c_like.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = %s", (post['post_id'],))
+                                    conn.commit()
+                                    st.rerun()
+                            with col_r:
+                                st.write(f"{post['likes']} likes")
+
+                            if post['user_id'] == user['user_id']:
+                                with st.expander("Manage Post"):
+                                    new_cap = st.text_input("Update Caption", value=post['caption'], key=f"edit_cap_{post['post_id']}")
+                                    if st.button("Save Changes", key=f"save_{post['post_id']}"):
+                                        update_post_caption(post['post_id'], new_cap)
+                                        st.rerun()
+                                    if st.button("Delete Post", key=f"del_{post['post_id']}"):
+                                        delete_post_by_id(post['post_id'])
+                                        st.rerun()
+
+                            st.divider()
+            except Exception as e:
+                st.error(f"Error loading feed: {e}")
+            finally:
+                conn.close()
+
+    with tab2:
+        st.subheader("➕ Create a New Post")
+        with st.form("create_post_form", clear_on_submit=True):
+            caption = st.text_area("What's on your mind?")
+            uploaded_file = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg", "webp"])
+            submit_post = st.form_submit_button("Publish Post", use_container_width=True)
+
+            if submit_post:
+                media_url = convert_file_to_base64(uploaded_file) if uploaded_file else None
+                if caption.strip() or media_url:
+                    conn = get_db_connection()
+                    if conn:
+                        try:
+                            cursor = conn.cursor()
+                            now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
+                            cursor.execute(
+                                "INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (%s, %s, %s, %s)",
+                                (user['user_id'], sanitize_input(caption), media_url, now_ist)
+                            )
+                            conn.commit()
+                            st.success("Post published successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to create post: {e}")
+                        finally:
+                            conn.close()
+                else:
+                    st.warning("Please add some text or an image to post.")
+
+    with tab3:
+        st.subheader("🔍 Explore Users")
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT user_id, username, bio, profile_pic, created_at FROM users WHERE user_id != %s", (user['user_id'],))
+                all_users = cursor.fetchall()
+
+                if not all_users:
+                    st.info("No other users found.")
+                else:
+                    for u in all_users:
+                        col1, col2, col3 = st.columns([1, 3, 2])
+                        with col1:
+                            render_html_image(get_user_pic(u), width=50, height=50)
+                        with col2:
+                            st.markdown(f"**@{u['username']}** `(ID: {u['user_id']})`")
+                            st.caption(get_user_bio(u))
+                        with col3:
+                            following_status = is_following(user['user_id'], u['user_id'])
+                            btn_label = "Unfollow" if following_status else "Follow"
+                            if st.button(btn_label, key=f"follow_btn_{u['user_id']}"):
+                                toggle_follow(user['user_id'], u['user_id'])
+                                st.rerun()
+                        st.divider()
+            except Exception as e:
+                st.error(f"Error loading users: {e}")
+            finally:
+                conn.close()
+
+    with tab4:
+        st.subheader("👤 My Profile Dashboard")
+        col_avatar, col_details = st.columns([1, 3])
+        with col_avatar:
+            render_html_image(get_user_pic(user), width=100, height=100)
+            if st.button("Change Picture"):
+                update_profile_pic_dialog()
+        with col_details:
+            st.markdown(f"### @{user['username']}")
+            st.write(f"**Bio:** {get_user_bio(user)}")
+            st.write(f"**Followers:** {my_followers_count} | **Following:** {my_following_count}")
+            
+            if st.button("System Health Diagnostics"):
+                show_platform_analytics()
+
+        st.divider()
+        st.subheader("My Posts History")
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT * FROM posts WHERE user_id = %s ORDER BY created_at DESC", (user['user_id'],))
+                my_posts = cursor.fetchall()
+
+                if not my_posts:
+                    st.info("You haven't published any posts yet.")
+                else:
+                    for mp in my_posts:
+                        st.write(f"*{format_to_ist(mp['created_at'])}*")
+                        if mp['caption']:
+                            st.write(mp['caption'])
+                        if mp['media_url']:
+                            st.image(mp['media_url'], width=200)
+                        st.divider()
+            except Exception as e:
+                st.error(f"Error loading personal posts: {e}")
+            finally:
+                conn.close()
+
+    with tab5:
+        render_enhanced_direct_messages(user)
+else:
+    user = st.session_state.user
+    my_followers_count = get_follower_count(user['user_id'])
+    my_following_count = get_following_count(user['user_id'])
+
     # ------------------ TOP APPLICATION HEADER ------------------
     header_col1, header_col2, header_col3 = st.columns([1, 3, 2])
 
@@ -1278,6 +1437,264 @@ else:
         </div>
         """
         components.html(chatway_html_code, height=570)
+  # ==============================================================================
+# 8. AUTHENTICATION MODULE (LOGIN / SIGNUP)
+# ==============================================================================
+
+if not st.session_state.user:
+    st.title("🎓 NOOB LEARNING")
+    st.write("Join the interactive learning community. Sign in or register below.")
+
+    tab_login, tab_signup = st.tabs(["🔒 Log In", "📝 Sign Up"])
+
+    # ------------------ LOG IN ------------------
+    with tab_login:
+        st.subheader("Account Login")
+        username = st.text_input("Username", key="login_user_input")
+        password = st.text_input("Password", type="password", key="login_pass_input")
+
+        if st.button("Log In to Account", use_container_width=True):
+            if username and password:
+                conn = get_db_connection()
+                if conn:
+                    try:
+                        cursor = conn.cursor(dictionary=True)
+                        cursor.execute(
+                            "SELECT * FROM users WHERE username = %s AND password = %s",
+                            (username.strip(), password)
+                        )
+                        account = cursor.fetchone()
+                        if account:
+                            st.session_state.user = account
+                            st.toast(f"Welcome back @{account['username']}!", icon="👋")
+                            st.success("Log in successful!")
+                            st.rerun()
+                        else:
+                            st.error("Invalid username or password credentials.")
+                    except Exception as e:
+                        st.error(f"Login Failure: {e}")
+                    finally:
+                        conn.close()
+            else:
+                st.warning("Please enter both username and password.")
+
+    # ------------------ SIGN UP ------------------
+    with tab_signup:
+        st.subheader("Create New Account")
+        new_user = st.text_input("Choose Username", key="reg_user_input")
+        new_pass = st.text_input("Choose Password", type="password", key="reg_pass_input")
+        confirm_pass = st.text_input("Confirm Password", type="password", key="reg_pass_confirm")
+
+        if st.button("Create Account Now", use_container_width=True):
+            if new_user and new_pass:
+                if new_pass != confirm_pass:
+                    st.error("Passwords do not match!")
+                else:
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        try:
+                            cursor.execute(
+                                "INSERT INTO users (username, password) VALUES (%s, %s)",
+                                (sanitize_input(new_user.strip()), new_pass)
+                            )
+                            conn.commit()
+                            st.success("Account successfully created! Please log in above.")
+                        except mysql.connector.IntegrityError:
+                            st.error("Username is already taken. Choose another.")
+                        except Exception as e:
+                            st.error(f"Sign up failed: {e}")
+                        finally:
+                            conn.close()
+            else:
+                st.warning("Please complete all required fields.")
+
+
+# ==============================================================================
+# 9. MAIN APPLICATION INTERFACE (AUTHENTICATED)
+# ==============================================================================
+
+else:
+    user = st.session_state.user
+    my_followers_count = get_follower_count(user['user_id'])
+    my_following_count = get_following_count(user['user_id'])
+
+    # ------ SIDEBAR / NAVIGATION & USER PROFILE HEADER ------
+    with st.sidebar:
+        st.write(f"Logged in as: **@{user['username']}**")
+        if st.button("🚪 Log Out", use_container_width=True):
+            st.session_state.user = None
+            st.rerun()
+
+    # ------ MAIN APP TABS ------
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🏠 Feed",
+        "➕ Create Post",
+        "🔍 Explore Users",
+        "👤 My Profile",
+        "💬 Messaging"
+    ])
+
+    with tab1:
+        st.subheader("📢 Community Feed")
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("""
+                    SELECT p.*, u.username, u.profile_pic 
+                    FROM posts p 
+                    JOIN users u ON p.user_id = u.user_id 
+                    ORDER BY p.created_at DESC
+                """)
+                posts = cursor.fetchall()
+
+                if not posts:
+                    st.info("No posts found. Be the first to share something!")
+                else:
+                    for post in posts:
+                        with st.container():
+                            col_ava, col_info = st.columns([1, 10])
+                            with col_ava:
+                                render_html_image(get_user_pic(post), width=35, height=35)
+                            with col_info:
+                                st.markdown(f"**@{post['username']}** • *{format_to_ist(post['created_at'])}*")
+                            
+                            if post['caption']:
+                                st.write(post['caption'])
+                            
+                            if post['media_url']:
+                                if "data:image" in post['media_url'] or post['media_url'].startswith("http"):
+                                    st.image(post['media_url'], use_container_width=True)
+                            
+                            # Post interaction tools (Like / Delete / Edit)
+                            col_l, col_r = st.columns([1, 5])
+                            with col_l:
+                                if st.button("❤️", key=f"like_{post['post_id']}"):
+                                    c_like = conn.cursor()
+                                    c_like.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = %s", (post['post_id'],))
+                                    conn.commit()
+                                    st.rerun()
+                            with col_r:
+                                st.write(f"{post['likes']} likes")
+
+                            if post['user_id'] == user['user_id']:
+                                with st.expander("Manage Post"):
+                                    new_cap = st.text_input("Update Caption", value=post['caption'], key=f"edit_cap_{post['post_id']}")
+                                    if st.button("Save Changes", key=f"save_{post['post_id']}"):
+                                        update_post_caption(post['post_id'], new_cap)
+                                        st.rerun()
+                                    if st.button("Delete Post", key=f"del_{post['post_id']}"):
+                                        delete_post_by_id(post['post_id'])
+                                        st.rerun()
+
+                            st.divider()
+            except Exception as e:
+                st.error(f"Error loading feed: {e}")
+            finally:
+                conn.close()
+
+    with tab2:
+        st.subheader("➕ Create a New Post")
+        with st.form("create_post_form", clear_on_submit=True):
+            caption = st.text_area("What's on your mind?")
+            uploaded_file = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg", "webp"])
+            submit_post = st.form_submit_button("Publish Post", use_container_width=True)
+
+            if submit_post:
+                media_url = convert_file_to_base64(uploaded_file) if uploaded_file else None
+                if caption.strip() or media_url:
+                    conn = get_db_connection()
+                    if conn:
+                        try:
+                            cursor = conn.cursor()
+                            now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
+                            cursor.execute(
+                                "INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (%s, %s, %s, %s)",
+                                (user['user_id'], sanitize_input(caption), media_url, now_ist)
+                            )
+                            conn.commit()
+                            st.success("Post published successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to create post: {e}")
+                        finally:
+                            conn.close()
+                else:
+                    st.warning("Please add some text or an image to post.")
+
+    with tab3:
+        st.subheader("🔍 Explore Users")
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT user_id, username, bio, profile_pic, created_at FROM users WHERE user_id != %s", (user['user_id'],))
+                all_users = cursor.fetchall()
+
+                if not all_users:
+                    st.info("No other users found.")
+                else:
+                    for u in all_users:
+                        col1, col2, col3 = st.columns([1, 3, 2])
+                        with col1:
+                            render_html_image(get_user_pic(u), width=50, height=50)
+                        with col2:
+                            st.markdown(f"**@{u['username']}** `(ID: {u['user_id']})`")
+                            st.caption(get_user_bio(u))
+                        with col3:
+                            following_status = is_following(user['user_id'], u['user_id'])
+                            btn_label = "Unfollow" if following_status else "Follow"
+                            if st.button(btn_label, key=f"follow_btn_{u['user_id']}"):
+                                toggle_follow(user['user_id'], u['user_id'])
+                                st.rerun()
+                        st.divider()
+            except Exception as e:
+                st.error(f"Error loading users: {e}")
+            finally:
+                conn.close()
+
+    with tab4:
+        st.subheader("👤 My Profile Dashboard")
+        col_avatar, col_details = st.columns([1, 3])
+        with col_avatar:
+            render_html_image(get_user_pic(user), width=100, height=100)
+            if st.button("Change Picture"):
+                update_profile_pic_dialog()
+        with col_details:
+            st.markdown(f"### @{user['username']}")
+            st.write(f"**Bio:** {get_user_bio(user)}")
+            st.write(f"**Followers:** {my_followers_count} | **Following:** {my_following_count}")
+            
+            if st.button("System Health Diagnostics"):
+                show_platform_analytics()
+
+        st.divider()
+        st.subheader("My Posts History")
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT * FROM posts WHERE user_id = %s ORDER BY created_at DESC", (user['user_id'],))
+                my_posts = cursor.fetchall()
+
+                if not my_posts:
+                    st.info("You haven't published any posts yet.")
+                else:
+                    for mp in my_posts:
+                        st.write(f"*{format_to_ist(mp['created_at'])}*")
+                        if mp['caption']:
+                            st.write(mp['caption'])
+                        if mp['media_url']:
+                            st.image(mp['media_url'], width=200)
+                        st.divider()
+            except Exception as e:
+                st.error(f"Error loading personal posts: {e}")
+            finally:
+                conn.close()
+
+    with tab5:
+        render_enhanced_direct_messages(user)
 
 
 # ==============================================================================
