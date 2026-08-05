@@ -6,10 +6,11 @@ import zoneinfo
 import logging
 import sys
 import re
+
 @st.cache_resource
-get_db_connection():
-    # Your existing database connection logic goes here
-    # This prevents reconnecting from scratch every time
+def get_db_connection():
+    # Replace this with your actual database connection logic
+    # e.g., return "mysql", mysql.connector.connect(...)
     pass
 
 @st.cache_data(ttl=60) # Caches user profiles or feed data for 60 seconds
