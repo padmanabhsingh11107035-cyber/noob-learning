@@ -803,9 +803,6 @@ else:
     elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
         profile_id = st.session_state.viewing_profile_id or user['user_id']
         db_type, conn = get_db_connection()
-    elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
-        profile_id = st.session_state.viewing_profile_id or user['user_id']
-        db_type, conn = get_db_connection()
         if conn:
             try:
                 if db_type == "mysql":
@@ -827,8 +824,14 @@ else:
                             st.write("👤")
                     with col_p2:
                         st.subheader(f"@{profile_user['username']}")
-                        st.write(f"**{profile_user.get('name', '')}**")
-                        st.write(profile_user.get('bio', ''))
+                        st.write(f"**Name:** {profile_user.get('name', 'N/A')}")
+                        st.write(f"**User ID:** {profile_user.get('user_id', 'N/A')}")
+                        st.write(f"**Bio:** {profile_user.get('bio', '')}")
+                        
+                        # Displaying new details
+                        st.write(f"**Age:** {profile_user.get('age', 'N/A')} | **Gender:** {profile_user.get('gender', 'N/A')}")
+                        st.write(f"**Birth Date:** {profile_user.get('birth_date', 'N/A')}")
+                        
                         st.caption(f"Account Type: {profile_user.get('account_type', 'Public')} | Joined: {profile_user.get('created_at', '')}")
 
                     if profile_user['user_id'] != user['user_id']:
@@ -872,9 +875,6 @@ else:
                         with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
                             st.write("### Edit Profile Details")
                             
-                            # ==========================================================
-                            # PROFILE PICTURE UPDATE WIDGET (Inside Settings Hub Only)
-                            # ==========================================================
                             st.markdown("#### Update Profile Picture")
                             uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
 
@@ -896,17 +896,25 @@ else:
                             with st.form("edit_profile_form"):
                                 new_name = st.text_input("Name", value=user.get('name', ''))
                                 new_bio = st.text_area("Bio", value=user.get('bio', ''))
+                                new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18))
+                                new_gender = st.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"], index=0 if user.get('gender') not in ["Female", "Other", "Prefer not to say"] else 1)
+                                new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', ''))
+
                                 if st.form_submit_button("Update Profile"):
                                     if db_type == "mysql":
-                                        cursor.execute("UPDATE users SET name = %s, bio = %s WHERE user_id = %s", 
-                                                       (sanitize_input(new_name), sanitize_input(new_bio), user['user_id']))
+                                        cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE user_id = %s", 
+                                                       (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
                                     else:
-                                        cursor.execute("UPDATE users SET name = ?, bio = ? WHERE user_id = ?", 
-                                                       (sanitize_input(new_name), sanitize_input(new_bio), user['user_id']))
+                                        cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE user_id = ?", 
+                                                       (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
                                     conn.commit()
                                     user['name'] = new_name
                                     user['bio'] = new_bio
-                                    st.success("Updated successfully!")
+                                    user['age'] = new_age
+                                    user['gender'] = new_gender
+                                    user['birth_date'] = new_birth_date
+                                    st.success("Profile updated successfully!")
+                                    st.rerun()
 
                             st.write("### 🔖 Saved Reels & Posts")
                             if db_type == "mysql":
@@ -981,7 +989,7 @@ else:
             finally:
                 conn.close()
 
-    render_footer()
+render_footer()
     #################################################################################################################################
 def make_user_follow_saraah(user_id: int):
     """Automatically forces any user to follow the exact Saraah Robotics ID."""
