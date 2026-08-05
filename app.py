@@ -726,13 +726,15 @@ else:
             try:
                 cursor = conn.cursor(dictionary=True) if db_type == "mysql" else conn.cursor()
                 
-                # Step 1: Get all user IDs of accepted friends via simple individual queries
+                # Step 1: Get all user IDs of accepted friends safely
                 if db_type == "mysql":
                     cursor.execute("SELECT following_id FROM follows WHERE follower_id = %s AND status = 'Accepted'", (user['user_id'],))
-                    following = [row['following_id'] for row in cursor.fetchall()]
+                    following_rows = cursor.fetchall()
+                    following = [r.get('following_id') for r in following_rows if r.get('following_id')]
                     
                     cursor.execute("SELECT follower_id FROM follows WHERE following_id = %s AND status = 'Accepted'", (user['user_id'],))
-                    followers = [row['follower_id'] for row in cursor.fetchall()]
+                    follower_rows = cursor.fetchall()
+                    followers = [r.get('follower_id') for r in follower_rows if r.get('follower_id')]
                 else:
                     cursor.execute("SELECT following_id FROM follows WHERE follower_id = ? AND status = 'Accepted'", (user['user_id'],))
                     following = [dict(row)['following_id'] for row in cursor.fetchall()]
@@ -744,7 +746,7 @@ else:
                 
                 friends = []
                 if friend_ids:
-                    # Step 2: Fetch usernames for those friend IDs
+                    # Step 2: Fetch usernames for those friend IDs safely
                     format_strings = ','.join(['%s' if db_type == "mysql" else '?'] * len(friend_ids))
                     query = f"SELECT user_id, username FROM users WHERE user_id IN ({format_strings})"
                     cursor.execute(query, tuple(friend_ids))
