@@ -1097,10 +1097,12 @@ else:
 
                                 if st.form_submit_button("Update Profile"):
                                     if db_type == "mysql":
-                                        cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE user_id = %s",
+                                        if st.form_submit_button("Update Profile"):
+                                    if db_type == "mysql":
+                                        cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE id = %s",
                                                        (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
                                     else:
-                                        cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE user_id = ?",
+                                        cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE id = ?",
                                                        (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
                                     
                                     conn.commit()
