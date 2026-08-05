@@ -1493,3 +1493,86 @@ def render_reels_viewer_page(current_user_id: int):
         st.error("Could not load reels feed.")
     finally:
         conn.close()
+# ==============================================================================
+# NOOB LEARNING - REELS PAGE (Paste at the very last line of your file)
+# ==============================================================================
+def render_reels_viewer_page(current_user_id: int):
+    """Renders a Reels style feed matching the requested layout with 'Noob Learning' branding."""
+    
+    # Top Header matching Instagram style bar with "Noob Learning" title
+    col1, col2, col3 = st.columns([1, 6, 1])
+    with col1:
+        st.markdown("📸")
+    with col2:
+        st.markdown("<h3 style='text-align: center; margin: 0; font-family: sans-serif;'>Noob Learning</h3>", unsafe_allow_html=True)
+    with col3:
+        st.markdown("✉️")
+    
+    st.divider()
+
+    db_type, conn = get_db_connection()
+    if not conn:
+        st.error("Database connection failed.")
+        return
+
+    try:
+        cursor = conn.cursor()
+        if db_type == "mysql":
+            cursor.execute("""
+                SELECT p.*, u.username, u.profile_pic 
+                FROM posts p 
+                JOIN users u ON p.user_id = u.user_id 
+                ORDER BY p.created_at DESC LIMIT 20
+            """)
+            reels = cursor.fetchall()
+        else:
+            cursor.execute("""
+                SELECT p.*, u.username, u.profile_pic 
+                FROM posts p 
+                JOIN users u ON p.user_id = u.user_id 
+                ORDER BY p.created_at DESC LIMIT 20
+            """)
+            reels = [dict(row) for row in cursor.fetchall()]
+
+        if not reels:
+            st.info("No media posts available yet.")
+            return
+
+        for reel in reels:
+            username = reel.get('username', 'user')
+            caption = reel.get('caption', '')
+            media_data = reel.get('media_url') or reel.get('media')
+
+            with st.container():
+                # User info header row above post
+                st.markdown(f"**@{username}**")
+                
+                # Main media display (video or image)
+                if media_data:
+                    try:
+                        if "video" in str(media_data).lower() or str(media_data).endswith(('.mp4', '.mov', '.avi')):
+                            st.video(media_data)
+                        else:
+                            st.image(media_data, use_container_width=True)
+                    except Exception:
+                        st.info("Displaying media placeholder.")
+                
+                # Action buttons row (Like, Comment, Share, Bookmark)
+                ac1, ac2, ac3, ac4 = st.columns([1, 1, 1, 6])
+                with ac1:
+                    st.button("🤍", key=f"like_{reel.get('post_id')}")
+                with ac2:
+                    st.button("💬", key=f"comment_{reel.get('post_id')}")
+                with ac3:
+                    st.button("↗️", key=f"share_{reel.get('post_id')}")
+                
+                # Caption text
+                if caption:
+                    st.markdown(f"**@{username}** {caption}")
+                
+                st.markdown("---")
+
+    except Exception as e:
+        st.error("Could not load feed.")
+    finally:
+        conn.close()
