@@ -294,11 +294,16 @@ if not st.session_state.user:
                         try:
                             if db_type == "mysql":
                                 cursor = conn.cursor(dictionary=True)
-                                cursor.execute("""
-                                    SELECT * FROM users 
-                                    WHERE username = %s OR email = %s OR phone_number = %s
-                                """, (login_identifier.strip(), login_identifier.strip(), login_identifier.strip()))
-                                account = cursor.fetchone()
+                                try:
+                                    cursor.execute("""
+                                        SELECT * FROM users 
+                                        WHERE username = %s OR email = %s OR phone_number = %s
+                                    """, (login_identifier.strip(), login_identifier.strip(), login_identifier.strip()))
+                                    account = cursor.fetchone()
+                                except Exception:
+                                    # Safe fallback if any column is missing or mismatches
+                                    cursor.execute("SELECT * FROM users WHERE username = %s", (login_identifier.strip(),))
+                                    account = cursor.fetchone()
                             else:
                                 cursor = conn.cursor()
                                 cursor.execute("""
@@ -413,7 +418,6 @@ if not st.session_state.user:
                 st.rerun()
 
     render_footer()
-
 # ==============================================================================
 # 6. AUTHENTICATED MAIN APPLICATION WITH BOTTOM NAVIGATION
 # ==============================================================================
