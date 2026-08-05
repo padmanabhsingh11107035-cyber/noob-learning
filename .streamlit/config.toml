@@ -1,15 +1,7 @@
 [theme]
-# Primary accent for buttons, sliders, etc.
-primaryColor = "#FF4B4B"
-
-# Background color for the main content area
-backgroundColor = "#FFFFFF"
-
-# Background color for sidebar and navigation
-secondaryBackgroundColor = "#F0F2F6"
-
-# Text color
-textColor = "#262730"
-
-# Font family ("sans serif", "serif", or "monospace")
+# Sleek Dark Tech Theme
+primaryColor = "#00FFA3"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#161B22"
+textColor = "#E6EDF3"
 font = "sans serif"
