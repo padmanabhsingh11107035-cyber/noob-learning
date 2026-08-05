@@ -663,8 +663,7 @@ def render_enhanced_direct_messages(user: Dict[str, Any]):
                         WHERE gm.group_id = %s
                         ORDER BY gm.sent_at ASC
                     """),
-                  
-                   (selected_group_id,)
+(selected_group_id,))
                    g_messages = cursor.fetchall()
 
                     if not g_messages:
