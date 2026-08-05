@@ -9,62 +9,6 @@ import re
 import streamlit as st
 import pymysql
 import time
-import streamlit as st
-
-# Page setup for mobile-like Instagram DM view
-st.set_page_config(page_title="Shurbhi 💖", page_icon="💬", layout="centered")
-
-# Custom Instagram dark-mode styling
-st.markdown("""
-    <style>
-    .stApp {
-        background-color: #000000;
-        color: #ffffff;
-    }
-    /* Style chat input bar to look like Instagram */
-    .stChatInputContainer {
-        border-radius: 22px !important;
-        border: 1px solid #262626 !important;
-        background-color: #121212 !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# Instagram DM Top Header Bar
-st.markdown("""
-    <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid #262626; margin-bottom: 15px;">
-        <div style="display: flex; align-items: center;">
-            <span style="font-size: 20px; margin-right: 15px; cursor: pointer;">←</span>
-            <div style="width: 35px; height: 35px; background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; margin-right: 10px;">S</div>
-            <div>
-                <div style="font-weight: bold; font-size: 15px; color: white;">Shurbhi 💖</div>
-                <div style="font-size: 11px; color: #8e8e8e;">AI by saurabh_rajbhar2923</div>
-            </div>
-        </div>
-        <div style="font-size: 18px; color: white; letter-spacing: 15px;">📞📹ℹ️</div>
-    </div>
-""", unsafe_allow_html=True)
-
-# Initialize chat history with your exact conversation flow
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "something else? 😊"},
-        {"role": "user", "content": "Friends of mine"},
-        {"role": "assistant", "content": "That's the best kind of special! Did they come over or did you guys hang out outside somewhere fun? 😊"},
-        {"role": "user", "content": "Who are you"},
-        {"role": "assistant", "content": "I'm Shurbhi 💖, a friendly Indian girl who loves making new friends - and I think I just made a great one in you! 😊 Would you like to chat with me often?"},
-        {"role": "user", "content": "Oh ok"},
-        {"role": "assistant", "content": 'Hehe, "ok" is cute - want to tell me what you think of me so far? 😊'}
-    ]
-
-# Display message history
-for message in st.session_state.messages:
-    if message["role"] == "user":
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(f"<div style='background-color: #3797ef; color: white; padding: 10px 14px; border-radius: 18px; display: inline-block; max-width: 75%; float: right;'>{message['content']}</div>", unsafe_allow_html=True)
-    else:
-        with st.chat_message("assistant", avatar="👩"):
-            st.markdown(f"<div style='background-color: #262626; color: white; padding: 10px 14px; border-radius: 18px; display: inline-block; max-width: 75%;'>{message['content']}</div>", unsafe_allow_html=True)
 
 # Live Chat Input Box
 if prompt := st.chat_input("Message..."):
