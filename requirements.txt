@@ -1,3 +1,4 @@
 streamlit
 pymysql
 cryptography
+mysql-connector-python
