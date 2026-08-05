@@ -1160,8 +1160,9 @@ def render_settings_and_activity_hub(user_id: int):
         logger.error(f"Settings Hub Error: {e}")
     finally:
         conn.close()
-# ------------------ BOTTOM NAVIGATION LAYOUT (6 BUTTONS) ------------------
-    nav_cols = st.columns(6)
+# ------------------ BOTTOM NAVIGATION LAYOUT (7 BUTTONS) ------------------#
+    #1. Update your navigation buttons to 7 columns (including Settings)
+    nav_cols = st.columns(7)
     with nav_cols[0]:
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.nav_tab = "Home"
@@ -1178,20 +1179,29 @@ def render_settings_and_activity_hub(user_id: int):
             st.session_state.viewing_profile_id = None
             st.rerun()
     with nav_cols[3]:
+        if st.button("🎬 Reels", use_container_width=True):
+            st.session_state.nav_tab = "Reels"
+            st.session_state.viewing_profile_id = None
+            st.rerun()
+    with nav_cols[4]:
         if st.button("💬 Chat", use_container_width=True):
             st.session_state.nav_tab = "Chat"
             st.session_state.viewing_profile_id = None
             st.rerun()
-    with nav_cols[4]:
+    with nav_cols[5]:
         if st.button("👤 Profile", use_container_width=True):
             st.session_state.nav_tab = "Profile"
             st.session_state.viewing_profile_id = user['user_id']
             st.rerun()
-    with nav_cols[5]:
+    with nav_cols[6]:
         if st.button("⚙️ Settings", use_container_width=True):
             st.session_state.nav_tab = "Settings"
             st.session_state.viewing_profile_id = None
             st.rerun()
+
+    # 2. Route checker for Settings
+    elif st.session_state.get("nav_tab") == "Settings":
+        render_settings_page(user['user_id'])
 ##################################################################################################################################################################
 # ==============================================================================
 # SARAHAH ROBOTICS AUTOMATED SETTINGS & AUTO-FOLLOW MODULE (Paste at the very last)
@@ -1357,5 +1367,117 @@ def render_settings_page(user_id: int):
 
     except Exception as e:
         logger.error(f"Settings page error: {e}")
+    finally:
+        conn.close()
+# ==============================================================================
+# FULLY WORKING DIRECT MESSAGE HANDLER (Paste at the very last)
+# ==============================================================================
+def render_and_handle_send_dm(current_user_id: int, recipient_user_id: int):
+    """Renders a working input field and handles direct messaging dynamically so it reflects immediately."""
+    st.markdown("---")
+    st.subheader("💬 Direct Message")
+    
+    # Use a unique form key based on the recipient to prevent state collisions
+    dm_form_key = f"dm_form_{current_user_id}_{recipient_user_id}"
+    
+    with st.form(key=dm_form_key, clear_on_submit=True):
+        message_text = st.text_input("Type your message here...", placeholder="Say something...")
+        send_clicked = st.form_submit_button("Send DM", type="primary")
+        
+        if send_clicked:
+            if not message_text.strip():
+                st.warning("Please type a message before sending.")
+                return
+
+            db_type, conn = get_db_connection()
+            if not conn:
+                st.error("Database connection failed.")
+                return
+
+            try:
+                cursor = conn.cursor()
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Insert message into database supporting both MySQL and SQLite setups
+                if db_type == "mysql":
+                    cursor.execute("""
+                        INSERT INTO messages (sender_id, recipient_id, message_text, created_at, is_read) 
+                        VALUES (%s, %s, %s, %s, 0)
+                    """, (current_user_id, recipient_user_id, sanitize_input(message_text), current_time))
+                else:
+                    cursor.execute("""
+                        INSERT INTO messages (sender_id, recipient_id, message_text, created_at, is_read) 
+                        VALUES (?, ?, ?, ?, 0)
+                    """, (current_user_id, recipient_user_id, sanitize_input(message_text), current_time))
+                
+                conn.commit()
+                st.success("Message sent successfully!")
+                st.rerun()
+            except Exception as e:
+                logger.error(f"Error sending DM: {e}")
+                st.error(f"Failed to send message: {e}")
+            finally:
+                conn.close()
+# ==============================================================================
+# REELS VIEWER MODULE & 6-BUTTON NAVIGATION (Paste at the very last)
+# ==============================================================================
+def render_reels_viewer_page(current_user_id: int):
+    """Renders a dedicated Reels viewing section where users can watch available reels and interact with them."""
+    st.subheader("🎬 Reels Feed")
+    st.write("Watch short-form video reels and media posted across the community.")
+    st.divider()
+
+    db_type, conn = get_db_connection()
+    if not conn:
+        st.error("Database connection failed.")
+        return
+
+    try:
+        cursor = conn.cursor()
+        # Fetch available video posts or reels from the database
+        if db_type == "mysql":
+            cursor.execute("""
+                SELECT p.*, u.username, u.profile_pic 
+                FROM posts p 
+                JOIN users u ON p.user_id = u.user_id 
+                WHERE p.media_type LIKE '%video%' OR p.caption LIKE '%reel%' 
+                ORDER BY p.created_at DESC LIMIT 20
+            """)
+            reels = cursor.fetchall()
+        else:
+            cursor.execute("""
+                SELECT p.*, u.username, u.profile_pic 
+                FROM posts p 
+                JOIN users u ON p.user_id = u.user_id 
+                WHERE p.media_type LIKE '%video%' OR p.caption LIKE '%reel%' 
+                ORDER BY p.created_at DESC LIMIT 20
+            """)
+            reels = [dict(row) for row in cursor.fetchall()]
+
+        if not reels:
+            st.info("No reels available at the moment. Check back soon or upload a video reel!")
+            return
+
+        for reel in reels:
+            username = reel.get('username', 'Unknown')
+            caption = reel.get('caption', '')
+            media_data = reel.get('media_url') or reel.get('media')
+            created_at = reel.get('created_at', '')
+
+            with st.container():
+                st.markdown(f"**@{username}** • <span style='color:gray; font-size:12px;'>{created_at}</span>", unsafe_allow_html=True)
+                if caption:
+                    st.write(caption)
+                
+                if media_data:
+                    try:
+                        st.video(media_data)
+                    except Exception:
+                        st.warning("Could not load video media.")
+                st.markdown("---")
+
+    except Exception as e:
+        logger.error(f"Error rendering reels viewer: {e}")
+        st.error("Could not load reels feed.")
     finally:
         conn.close()
