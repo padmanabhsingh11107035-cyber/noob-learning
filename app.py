@@ -62,97 +62,166 @@ def inject_custom_css():
 inject_custom_css()
 
 # ==============================================================================
-# 2. DATABASE CONFIGURATION (Shared Cloud MySQL Instance)
+# 2. DATABASE CONFIGURATION & FALLBACK (Local SQLite or Cloud MySQL)
 # ==============================================================================
-DB_CONFIG = {
-    "host": "mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
-    "port": 21354,
-    "user": "avnadmin",
-    "password": "AVNS_iN1XY9WAsRFlUWVhM6k",
-    "database": "defaultdb",
-    "connect_timeout": 10
-}
+import sqlite3
 
 def get_db_connection():
-    """Establish connection to shared Cloud MySQL database."""
+    """Attempts to connect to Cloud MySQL first; falls back to robust local SQLite if cloud host is unreachable."""
+    DB_CONFIG = {
+        "host": "mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
+        "port": 21354,
+        "user": "avnadmin",
+        "password": "AVNS_iN1XY9WAsRFlUWVhM6k",
+        "database": "defaultdb",
+        "connect_timeout": 3
+    }
     try:
         connection = mysql.connector.connect(**DB_CONFIG)
         if connection.is_connected():
-            return connection
-    except mysql.connector.Error as err:
-        st.error(f"Database Connection Failure: {err}")
-        return None
-    return None
+            return ("mysql", connection)
+    except Exception as err:
+        logger.warning(f"Cloud MySQL unreachable ({err}). Falling back to local SQLite database for seamless execution.")
+    
+    # Fallback to local SQLite so the app never crashes on DNS/host resolution errors
+    sqlite_conn = sqlite3.connect("noob_learning.db", check_same_thread=False)
+    sqlite_conn.row_factory = sqlite3.Row
+    return ("sqlite", sqlite_conn)
 
 def setup_database_schema():
-    """Ensures all required tables for Noob Learning exist with full feature support."""
-    conn = get_db_connection()
+    """Ensures all required tables exist across either database backend."""
+    db_type, conn = get_db_connection()
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(100) UNIQUE NOT NULL,
-                    password VARCHAR(255) NOT NULL,
-                    name VARCHAR(150),
-                    phone_number VARCHAR(30),
-                    email VARCHAR(150),
-                    gender VARCHAR(50),
-                    account_type VARCHAR(20) DEFAULT 'Public',
-                    bio VARCHAR(255) DEFAULT 'Welcome to NOOB LEARNING!',
-                    profile_pic LONGTEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS posts (
-                    post_id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT NOT NULL,
-                    caption TEXT,
-                    media_url LONGTEXT,
-                    likes INT DEFAULT 0,
-                    shares INT DEFAULT 0,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS comments (
-                    comment_id INT AUTO_INCREMENT PRIMARY KEY,
-                    post_id INT NOT NULL,
-                    user_id INT NOT NULL,
-                    comment_text TEXT NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS follows (
-                    follow_id INT AUTO_INCREMENT PRIMARY KEY,
-                    follower_id INT NOT NULL,
-                    following_id INT NOT NULL,
-                    status VARCHAR(20) DEFAULT 'Accepted',
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    message_id INT AUTO_INCREMENT PRIMARY KEY,
-                    sender_id INT NOT NULL,
-                    receiver_id INT NOT NULL,
-                    message_text TEXT,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_interactions (
-                    interaction_id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT NOT NULL,
-                    post_id INT NOT NULL,
-                    interaction_type VARCHAR(20) NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
+            if db_type == "mysql":
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id INT AUTO_INCREMENT PRIMARY KEY,
+                        username VARCHAR(100) UNIQUE NOT NULL,
+                        password VARCHAR(255) NOT NULL,
+                        name VARCHAR(150),
+                        phone_number VARCHAR(30),
+                        email VARCHAR(150),
+                        gender VARCHAR(50),
+                        account_type VARCHAR(20) DEFAULT 'Public',
+                        bio VARCHAR(255) DEFAULT 'Welcome to NOOB LEARNING!',
+                        profile_pic LONGTEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS posts (
+                        post_id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id INT NOT NULL,
+                        caption TEXT,
+                        media_url LONGTEXT,
+                        likes INT DEFAULT 0,
+                        shares INT DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS comments (
+                        comment_id INT AUTO_INCREMENT PRIMARY KEY,
+                        post_id INT NOT NULL,
+                        user_id INT NOT NULL,
+                        comment_text TEXT NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS follows (
+                        follow_id INT AUTO_INCREMENT PRIMARY KEY,
+                        follower_id INT NOT NULL,
+                        following_id INT NOT NULL,
+                        status VARCHAR(20) DEFAULT 'Accepted',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS messages (
+                        message_id INT AUTO_INCREMENT PRIMARY KEY,
+                        sender_id INT NOT NULL,
+                        receiver_id INT NOT NULL,
+                        message_text TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS user_interactions (
+                        interaction_id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id INT NOT NULL,
+                        post_id INT NOT NULL,
+                        interaction_type VARCHAR(20) NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                conn.commit()
+            else:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password TEXT NOT NULL,
+                        name TEXT,
+                        phone_number TEXT,
+                        email TEXT,
+                        gender TEXT,
+                        account_type TEXT DEFAULT 'Public',
+                        bio TEXT DEFAULT 'Welcome to NOOB LEARNING!',
+                        profile_pic TEXT,
+                        created_at TEXT
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS posts (
+                        post_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        caption TEXT,
+                        media_url TEXT,
+                        likes INTEGER DEFAULT 0,
+                        shares INTEGER DEFAULT 0,
+                        created_at TEXT
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS comments (
+                        comment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        post_id INTEGER NOT NULL,
+                        user_id INTEGER NOT NULL,
+                        comment_text TEXT NOT NULL,
+                        created_at TEXT
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS follows (
+                        follow_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        follower_id INTEGER NOT NULL,
+                        following_id INTEGER NOT NULL,
+                        status TEXT DEFAULT 'Accepted',
+                        created_at TEXT
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS messages (
+                        message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sender_id INTEGER NOT NULL,
+                        receiver_id INTEGER NOT NULL,
+                        message_text TEXT,
+                        created_at TEXT
+                    );
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS user_interactions (
+                        interaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        post_id INTEGER NOT NULL,
+                        interaction_type TEXT NOT NULL,
+                        created_at TEXT
+                    );
+                """)
+                conn.commit()
         except Exception as e:
             logger.error(f"Schema setup error: {e}")
         finally:
@@ -220,15 +289,24 @@ if not st.session_state.user:
 
             if st.button("Log In", use_container_width=True, type="primary"):
                 if login_identifier and login_password:
-                    conn = get_db_connection()
+                    db_type, conn = get_db_connection()
                     if conn:
                         try:
-                            cursor = conn.cursor(dictionary=True)
-                            cursor.execute("""
-                                SELECT * FROM users 
-                                WHERE username = %s OR email = %s OR phone_number = %s
-                            """, (login_identifier.strip(), login_identifier.strip(), login_identifier.strip()))
-                            account = cursor.fetchone()
+                            if db_type == "mysql":
+                                cursor = conn.cursor(dictionary=True)
+                                cursor.execute("""
+                                    SELECT * FROM users 
+                                    WHERE username = %s OR email = %s OR phone_number = %s
+                                """, (login_identifier.strip(), login_identifier.strip(), login_identifier.strip()))
+                                account = cursor.fetchone()
+                            else:
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    SELECT * FROM users 
+                                    WHERE username = ? OR email = ? OR phone_number = ?
+                                """, (login_identifier.strip(), login_identifier.strip(), login_identifier.strip()))
+                                row = cursor.fetchone()
+                                account = dict(row) if row else None
 
                             if account and account['password'] == login_password:
                                 st.session_state.user = account
@@ -274,31 +352,47 @@ if not st.session_state.user:
                             b_data = profile_pic_file.getvalue()
                             pic_base64 = f"data:{profile_pic_file.type};base64,{base64.b64encode(b_data).decode()}"
 
-                        conn = get_db_connection()
+                        db_type, conn = get_db_connection()
                         if conn:
                             try:
                                 cursor = conn.cursor()
                                 current_ts = get_current_ist_time()
-                                cursor.execute("""
-                                    INSERT INTO users (username, password, name, phone_number, email, gender, account_type, profile_pic, created_at) 
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """, (
-                                    sanitize_input(reg_username),
-                                    reg_password,
-                                    sanitize_input(reg_name),
-                                    sanitize_input(reg_phone),
-                                    sanitize_input(reg_email),
-                                    reg_gender,
-                                    reg_account_type,
-                                    pic_base64,
-                                    current_ts
-                                ))
+                                if db_type == "mysql":
+                                    cursor.execute("""
+                                        INSERT INTO users (username, password, name, phone_number, email, gender, account_type, profile_pic, created_at) 
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """, (
+                                        sanitize_input(reg_username),
+                                        reg_password,
+                                        sanitize_input(reg_name),
+                                        sanitize_input(reg_phone),
+                                        sanitize_input(reg_email),
+                                        reg_gender,
+                                        reg_account_type,
+                                        pic_base64,
+                                        current_ts
+                                    ))
+                                else:
+                                    cursor.execute("""
+                                        INSERT INTO users (username, password, name, phone_number, email, gender, account_type, profile_pic, created_at) 
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    """, (
+                                        sanitize_input(reg_username),
+                                        reg_password,
+                                        sanitize_input(reg_name),
+                                        sanitize_input(reg_phone),
+                                        sanitize_input(reg_email),
+                                        reg_gender,
+                                        reg_account_type,
+                                        pic_base64,
+                                        current_ts
+                                    ))
                                 conn.commit()
                                 st.success("Account created successfully! Please log in.")
                                 st.session_state.auth_page = "login"
                                 st.rerun()
-                            except mysql.connector.IntegrityError:
-                                st.error("Username or email already exists.")
+                            except Exception as ex:
+                                st.error(f"Username or email already exists or database error: {ex}")
                             finally:
                                 conn.close()
                     else:
@@ -362,17 +456,27 @@ else:
     # ------------------ TAB 1: HOME FEED (REELS / POSTS STYLE) ------------------
     if st.session_state.nav_tab == "Home" and not st.session_state.viewing_profile_id:
         st.subheader("Feed / Reels")
-        conn = get_db_connection()
+        db_type, conn = get_db_connection()
         if conn:
             try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("""
-                    SELECT p.*, u.username, u.profile_pic, u.user_id as author_id
-                    FROM posts p 
-                    JOIN users u ON p.user_id = u.user_id 
-                    ORDER BY p.created_at DESC
-                """)
-                posts = cursor.fetchall()
+                if db_type == "mysql":
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("""
+                        SELECT p.*, u.username, u.profile_pic, u.user_id as author_id
+                        FROM posts p 
+                        JOIN users u ON p.user_id = u.user_id 
+                        ORDER BY p.created_at DESC
+                    """)
+                    posts = cursor.fetchall()
+                else:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT p.*, u.username, u.profile_pic, u.user_id as author_id
+                        FROM posts p 
+                        JOIN users u ON p.user_id = u.user_id 
+                        ORDER BY p.created_at DESC
+                    """)
+                    posts = [dict(row) for row in cursor.fetchall()]
 
                 if not posts:
                     st.info("No posts yet. Follow friends or create a post!")
@@ -381,17 +485,25 @@ else:
                         with st.container():
                             c_h1, c_h2 = st.columns([4, 1])
                             with c_h1:
-                                # Displays exact date and time right under the author username
-                                exact_time_str = format_to_ist(post.get('created_at'))
+                                exact_time_str = post.get('created_at', '')
                                 st.markdown(f"**@{post['username']}**<br><span style='font-size: 0.75rem; color: gray;'>📅 {exact_time_str}</span>", unsafe_allow_html=True)
                             with c_h2:
                                 if post['author_id'] != user['user_id']:
-                                    cur_f = conn.cursor(dictionary=True)
-                                    cur_f.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", (user['user_id'], post['author_id']))
-                                    rel = cur_f.fetchone()
+                                    if db_type == "mysql":
+                                        cur_f = conn.cursor(dictionary=True)
+                                        cur_f.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", (user['user_id'], post['author_id']))
+                                        rel = cur_f.fetchone()
+                                    else:
+                                        cur_f = conn.cursor()
+                                        cur_f.execute("SELECT * FROM follows WHERE follower_id = ? AND following_id = ?", (user['user_id'], post['author_id']))
+                                        rel = cur_f.fetchone()
+
                                     if not rel:
                                         if st.button("Follow", key=f"feed_follow_{post['post_id']}"):
-                                            cur_f.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (%s, %s, 'Accepted', %s)", (user['user_id'], post['author_id'], get_current_ist_time()))
+                                            if db_type == "mysql":
+                                                cur_f.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (%s, %s, 'Accepted', %s)", (user['user_id'], post['author_id'], get_current_ist_time()))
+                                            else:
+                                                cur_f.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (?, ?, 'Accepted', ?)", (user['user_id'], post['author_id'], get_current_ist_time()))
                                             conn.commit()
                                             st.rerun()
 
@@ -404,8 +516,12 @@ else:
                             with act_col1:
                                 if st.button(f"❤️ {post.get('likes', 0)}", key=f"like_{post['post_id']}"):
                                     cur2 = conn.cursor()
-                                    cur2.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = %s", (post['post_id'],))
-                                    cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (%s, %s, 'liked', %s)", (user['user_id'], post['post_id'], get_current_ist_time()))
+                                    if db_type == "mysql":
+                                        cur2.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = %s", (post['post_id'],))
+                                        cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (%s, %s, 'liked', %s)", (user['user_id'], post['post_id'], get_current_ist_time()))
+                                    else:
+                                        cur2.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = ?", (post['post_id'],))
+                                        cur2.execute("INSERT OR IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (?, ?, 'liked', ?)", (user['user_id'], post['post_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.rerun()
                             with act_col2:
@@ -414,35 +530,55 @@ else:
                             with act_col3:
                                 if st.button(f"🔄 {post.get('shares', 0)}", key=f"share_{post['post_id']}"):
                                     cur2 = conn.cursor()
-                                    cur2.execute("UPDATE posts SET shares = shares + 1 WHERE post_id = %s", (post['post_id'],))
+                                    if db_type == "mysql":
+                                        cur2.execute("UPDATE posts SET shares = shares + 1 WHERE post_id = %s", (post['post_id'],))
+                                    else:
+                                        cur2.execute("UPDATE posts SET shares = shares + 1 WHERE post_id = ?", (post['post_id'],))
                                     conn.commit()
                                     st.toast("Post shared!")
                             with act_col4:
                                 if st.button("🔖 Save", key=f"save_{post['post_id']}"):
                                     cur2 = conn.cursor()
-                                    cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (%s, %s, 'saved', %s)", (user['user_id'], post['post_id'], get_current_ist_time()))
+                                    if db_type == "mysql":
+                                        cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (%s, %s, 'saved', %s)", (user['user_id'], post['post_id'], get_current_ist_time()))
+                                    else:
+                                        cur2.execute("INSERT OR IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (?, ?, 'saved', ?)", (user['user_id'], post['post_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.toast("Saved to collection!")
 
                             if st.session_state.get(f"show_com_{post['post_id']}", False):
                                 st.markdown("##### Comments")
-                                cur_c = conn.cursor(dictionary=True)
-                                cur_c.execute("""
-                                    SELECT c.*, u.username FROM comments c 
-                                    JOIN users u ON c.user_id = u.user_id 
-                                    WHERE c.post_id = %s ORDER BY c.created_at ASC
-                                """, (post['post_id'],))
-                                comments = cur_c.fetchall()
+                                if db_type == "mysql":
+                                    cur_c = conn.cursor(dictionary=True)
+                                    cur_c.execute("""
+                                        SELECT c.*, u.username FROM comments c 
+                                        JOIN users u ON c.user_id = u.user_id 
+                                        WHERE c.post_id = %s ORDER BY c.created_at ASC
+                                    """, (post['post_id'],))
+                                    comments = cur_c.fetchall()
+                                else:
+                                    cur_c = conn.cursor()
+                                    cur_c.execute("""
+                                        SELECT c.*, u.username FROM comments c 
+                                        JOIN users u ON c.user_id = u.user_id 
+                                        WHERE c.post_id = ? ORDER BY c.created_at ASC
+                                    """, (post['post_id'],))
+                                    comments = [dict(row) for row in cur_c.fetchall()]
+
                                 for comm in comments:
-                                    comm_time = format_to_ist(comm.get('created_at'))
+                                    comm_time = comm.get('created_at', '')
                                     st.markdown(f"**@{comm['username']}**: {comm['comment_text']} <span style='font-size: 0.7rem; color: gray;'>({comm_time})</span>", unsafe_allow_html=True)
 
                                 with st.form(key=f"comment_form_{post['post_id']}", clear_on_submit=True):
                                     new_comm = st.text_input("Add a comment...")
                                     if st.form_submit_button("Post Comment"):
                                         if new_comm.strip():
-                                            cur_c.execute("INSERT INTO comments (post_id, user_id, comment_text, created_at) VALUES (%s, %s, %s, %s)",
-                                                          (post['post_id'], user['user_id'], sanitize_input(new_comm), get_current_ist_time()))
+                                            if db_type == "mysql":
+                                                cur_c.execute("INSERT INTO comments (post_id, user_id, comment_text, created_at) VALUES (%s, %s, %s, %s)",
+                                                              (post['post_id'], user['user_id'], sanitize_input(new_comm), get_current_ist_time()))
+                                            else:
+                                                cur_c.execute("INSERT INTO comments (post_id, user_id, comment_text, created_at) VALUES (?, ?, ?, ?)",
+                                                              (post['post_id'], user['user_id'], sanitize_input(new_comm), get_current_ist_time()))
                                             conn.commit()
                                             st.rerun()
 
@@ -459,26 +595,42 @@ else:
                                 submit_msg = st.form_submit_button("Send DM")
                                 if submit_msg and msg_input.strip():
                                     cur_m = conn.cursor()
-                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, %s, %s)",
-                                                  (user['user_id'], post['author_id'], sanitize_input(msg_input), get_current_ist_time()))
+                                    if db_type == "mysql":
+                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, %s, %s)",
+                                                      (user['user_id'], post['author_id'], sanitize_input(msg_input), get_current_ist_time()))
+                                    else:
+                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, ?, ?)",
+                                                      (user['user_id'], post['author_id'], sanitize_input(msg_input), get_current_ist_time()))
                                     conn.commit()
                                     st.success("Message sent to author with timestamp!")
                                 elif react_laugh:
                                     cur_m = conn.cursor()
-                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '😂', %s)",
-                                                  (user['user_id'], post['author_id'], get_current_ist_time()))
+                                    if db_type == "mysql":
+                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '😂', %s)",
+                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
+                                    else:
+                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, '😂', ?)",
+                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.toast("Reaction sent!")
                                 elif react_love:
                                     cur_m = conn.cursor()
-                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '😍', %s)",
-                                                  (user['user_id'], post['author_id'], get_current_ist_time()))
+                                    if db_type == "mysql":
+                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '😍', %s)",
+                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
+                                    else:
+                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, '😍', ?)",
+                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.toast("Reaction sent!")
                                 elif react_fire:
                                     cur_m = conn.cursor()
-                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '🔥', %s)",
-                                                  (user['user_id'], post['author_id'], get_current_ist_time()))
+                                    if db_type == "mysql":
+                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '🔥', %s)",
+                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
+                                    else:
+                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, '🔥', ?)",
+                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.toast("Reaction sent!")
 
@@ -492,13 +644,19 @@ else:
         search_query = st.text_input("Search ID or Username...")
         
         if search_query:
-            conn = get_db_connection()
+            db_type, conn = get_db_connection()
             if conn:
                 try:
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE %s AND user_id != %s", 
-                                   (f"%{search_query}%", user['user_id']))
-                    results = cursor.fetchall()
+                    if db_type == "mysql":
+                        cursor = conn.cursor(dictionary=True)
+                        cursor.execute("SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE %s AND user_id != %s", 
+                                       (f"%{search_query}%", user['user_id']))
+                        results = cursor.fetchall()
+                    else:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT user_id, username, name, account_type, profile_pic FROM users WHERE username LIKE ? AND user_id != ?", 
+                                       (f"%{search_query}%", user['user_id']))
+                        results = [dict(row) for row in cursor.fetchall()]
 
                     if not results:
                         st.info("No users found.")
@@ -531,13 +689,17 @@ else:
                     media_url = f"data:{uploaded_file.type};base64,{base64.b64encode(b_data).decode()}"
 
                 if caption or media_url:
-                    conn = get_db_connection()
+                    db_type, conn = get_db_connection()
                     if conn:
                         try:
                             cursor = conn.cursor()
                             current_ts = get_current_ist_time()
-                            cursor.execute("INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (%s, %s, %s, %s)", 
-                                           (user['user_id'], sanitize_input(caption), media_url, current_ts))
+                            if db_type == "mysql":
+                                cursor.execute("INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (%s, %s, %s, %s)", 
+                                               (user['user_id'], sanitize_input(caption), media_url, current_ts))
+                            else:
+                                cursor.execute("INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (?, ?, ?, ?)", 
+                                               (user['user_id'], sanitize_input(caption), media_url, current_ts))
                             conn.commit()
                             st.success(f"Posted successfully at {current_ts} IST! Reflected at the top of the feed.")
                             st.session_state.nav_tab = "Home"
@@ -550,16 +712,25 @@ else:
     # ------------------ TAB 4: CHAT & GROUPS ------------------
     elif st.session_state.nav_tab == "Chat":
         st.subheader("Messages & Friend Chats")
-        conn = get_db_connection()
+        db_type, conn = get_db_connection()
         if conn:
             try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("""
-                    SELECT u.user_id, u.username FROM users u 
-                    JOIN follows f ON (f.follower_id = %s AND f.following_id = u.user_id AND f.status = 'Accepted')
-                    OR (f.following_id = %s AND f.follower_id = u.user_id AND f.status = 'Accepted')
-                """, (user['user_id'], user['user_id']))
-                friends = cursor.fetchall()
+                if db_type == "mysql":
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("""
+                        SELECT u.user_id, u.username FROM users u 
+                        JOIN follows f ON (f.follower_id = %s AND f.following_id = u.user_id AND f.status = 'Accepted')
+                        OR (f.following_id = %s AND f.follower_id = u.user_id AND f.status = 'Accepted')
+                    """, (user['user_id'], user['user_id']))
+                    friends = cursor.fetchall()
+                else:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT u.user_id, u.username FROM users u 
+                        JOIN follows f ON (f.follower_id = ? AND f.following_id = u.user_id AND f.status = 'Accepted')
+                        OR (f.following_id = ? AND f.follower_id = u.user_id AND f.status = 'Accepted')
+                    """, (user['user_id'], user['user_id']))
+                    friends = [dict(row) for row in cursor.fetchall()]
 
                 if not friends:
                     st.info("You can only chat with users who are your friends (mutual follow or accepted request).")
@@ -571,16 +742,24 @@ else:
                     if target_friend:
                         st.write(f"### Chat with @{target_friend['username']}")
                         
-                        cursor.execute("""
-                            SELECT * FROM messages 
-                            WHERE (sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s)
-                            ORDER BY created_at ASC
-                        """, (user['user_id'], target_friend['user_id'], target_friend['user_id'], user['user_id']))
-                        messages = cursor.fetchall()
+                        if db_type == "mysql":
+                            cursor.execute("""
+                                SELECT * FROM messages 
+                                WHERE (sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s)
+                                ORDER BY created_at ASC
+                            """, (user['user_id'], target_friend['user_id'], target_friend['user_id'], user['user_id']))
+                            messages = cursor.fetchall()
+                        else:
+                            cursor.execute("""
+                                SELECT * FROM messages 
+                                WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+                                ORDER BY created_at ASC
+                            """, (user['user_id'], target_friend['user_id'], target_friend['user_id'], user['user_id']))
+                            messages = [dict(row) for row in cursor.fetchall()]
 
                         for m in messages:
                             sender_name = "You" if m['sender_id'] == user['user_id'] else target_friend['username']
-                            msg_time = format_to_ist(m.get('created_at'))
+                            msg_time = m.get('created_at', '')
                             st.markdown(f"**{sender_name}**: {m['message_text']} <span style='font-size: 0.7rem; color: gray;'>({msg_time})</span>", unsafe_allow_html=True)
 
                         with st.form("chat_send_form", clear_on_submit=True):
@@ -588,8 +767,12 @@ else:
                             if st.form_submit_button("Send"):
                                 if msg_text.strip():
                                     current_ts = get_current_ist_time()
-                                    cursor.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, %s, %s)",
-                                                   (user['user_id'], target_friend['user_id'], sanitize_input(msg_text), current_ts))
+                                    if db_type == "mysql":
+                                        cursor.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, %s, %s)",
+                                                       (user['user_id'], target_friend['user_id'], sanitize_input(msg_text), current_ts))
+                                    else:
+                                        cursor.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, ?, ?)",
+                                                       (user['user_id'], target_friend['user_id'], sanitize_input(msg_text), current_ts))
                                     conn.commit()
                                     st.rerun()
             finally:
@@ -598,12 +781,18 @@ else:
     # ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
     elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
         profile_id = st.session_state.viewing_profile_id or user['user_id']
-        conn = get_db_connection()
+        db_type, conn = get_db_connection()
         if conn:
             try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM users WHERE user_id = %s", (profile_id,))
-                profile_user = cursor.fetchone()
+                if db_type == "mysql":
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("SELECT * FROM users WHERE user_id = %s", (profile_id,))
+                    profile_user = cursor.fetchone()
+                else:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
+                    row = cursor.fetchone()
+                    profile_user = dict(row) if row else None
 
                 if profile_user:
                     col_p1, col_p2 = st.columns([1, 3])
@@ -616,26 +805,40 @@ else:
                         st.subheader(f"@{profile_user['username']}")
                         st.write(f"**{profile_user.get('name', '')}**")
                         st.write(profile_user.get('bio', ''))
-                        st.caption(f"Account Type: {profile_user.get('account_type', 'Public')} | Joined: {format_to_ist(profile_user.get('created_at'))}")
+                        st.caption(f"Account Type: {profile_user.get('account_type', 'Public')} | Joined: {profile_user.get('created_at', '')}")
 
                     if profile_user['user_id'] != user['user_id']:
-                        cursor.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", 
-                                       (user['user_id'], profile_user['user_id']))
-                        follow_rel = cursor.fetchone()
+                        if db_type == "mysql":
+                            cursor.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", 
+                                           (user['user_id'], profile_user['user_id']))
+                            follow_rel = cursor.fetchone()
+                        else:
+                            cursor.execute("SELECT * FROM follows WHERE follower_id = ? AND following_id = ?", 
+                                           (user['user_id'], profile_user['user_id']))
+                            row = cursor.fetchone()
+                            follow_rel = dict(row) if row else None
 
                         if not follow_rel:
                             if st.button("Follow"):
                                 status = "Pending" if profile_user['account_type'] == 'Private' else "Accepted"
-                                cursor.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (%s, %s, %s, %s)",
-                                               (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
+                                if db_type == "mysql":
+                                    cursor.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (%s, %s, %s, %s)",
+                                                   (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
+                                else:
+                                    cursor.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (?, ?, ?, ?)",
+                                                   (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
                                 conn.commit()
                                 st.rerun()
                         elif follow_rel['status'] == 'Pending':
                             st.button("Requested", disabled=True)
                         else:
                             if st.button("Unfollow"):
-                                cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s",
-                                               (user['user_id'], profile_user['user_id']))
+                                if db_type == "mysql":
+                                    cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s",
+                                                   (user['user_id'], profile_user['user_id']))
+                                else:
+                                    cursor.execute("DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
+                                                   (user['user_id'], profile_user['user_id']))
                                 conn.commit()
                                 st.rerun()
 
@@ -648,38 +851,60 @@ else:
                                 new_name = st.text_input("Name", value=user.get('name', ''))
                                 new_bio = st.text_area("Bio", value=user.get('bio', ''))
                                 if st.form_submit_button("Update Profile"):
-                                    cursor.execute("UPDATE users SET name = %s, bio = %s WHERE user_id = %s", 
-                                                   (sanitize_input(new_name), sanitize_input(new_bio), user['user_id']))
+                                    if db_type == "mysql":
+                                        cursor.execute("UPDATE users SET name = %s, bio = %s WHERE user_id = %s", 
+                                                       (sanitize_input(new_name), sanitize_input(new_bio), user['user_id']))
+                                    else:
+                                        cursor.execute("UPDATE users SET name = ?, bio = ? WHERE user_id = ?", 
+                                                       (sanitize_input(new_name), sanitize_input(new_bio), user['user_id']))
                                     conn.commit()
                                     user['name'] = new_name
                                     user['bio'] = new_bio
                                     st.success("Updated successfully!")
 
                             st.write("### 🔖 Saved Reels & Posts")
-                            cursor.execute("""
-                                SELECT p.* FROM posts p 
-                                JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                WHERE ui.user_id = %s AND ui.interaction_type = 'saved'
-                            """, (user['user_id'],))
-                            saved_posts = cursor.fetchall()
+                            if db_type == "mysql":
+                                cursor.execute("""
+                                    SELECT p.* FROM posts p 
+                                    JOIN user_interactions ui ON p.post_id = ui.post_id 
+                                    WHERE ui.user_id = %s AND ui.interaction_type = 'saved'
+                                """, (user['user_id'],))
+                                saved_posts = cursor.fetchall()
+                            else:
+                                cursor.execute("""
+                                    SELECT p.* FROM posts p 
+                                    JOIN user_interactions ui ON p.post_id = ui.post_id 
+                                    WHERE ui.user_id = ? AND ui.interaction_type = 'saved'
+                                """, (user['user_id'],))
+                                saved_posts = [dict(row) for row in cursor.fetchall()]
+
                             if not saved_posts:
                                 st.caption("No saved posts or reels yet.")
                             for sp in saved_posts:
-                                st.markdown(f"**{sp.get('caption', 'Saved Item')}** <span style='font-size: 0.7rem; color: gray;'>({format_to_ist(sp.get('created_at'))})</span>", unsafe_allow_html=True)
+                                st.markdown(f"**{sp.get('caption', 'Saved Item')}** <span style='font-size: 0.7rem; color: gray;'>({sp.get('created_at', '')})</span>", unsafe_allow_html=True)
                                 if sp.get('media_url'):
                                     st.image(sp['media_url'], width=150)
 
                             st.write("### ❤️ Liked Reels & Posts")
-                            cursor.execute("""
-                                SELECT p.* FROM posts p 
-                                JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                WHERE ui.user_id = %s AND ui.interaction_type = 'liked'
-                            """, (user['user_id'],))
-                            liked_posts = cursor.fetchall()
+                            if db_type == "mysql":
+                                cursor.execute("""
+                                    SELECT p.* FROM posts p 
+                                    JOIN user_interactions ui ON p.post_id = ui.post_id 
+                                    WHERE ui.user_id = %s AND ui.interaction_type = 'liked'
+                                """, (user['user_id'],))
+                                liked_posts = cursor.fetchall()
+                            else:
+                                cursor.execute("""
+                                    SELECT p.* FROM posts p 
+                                    JOIN user_interactions ui ON p.post_id = ui.post_id 
+                                    WHERE ui.user_id = ? AND ui.interaction_type = 'liked'
+                                """, (user['user_id'],))
+                                liked_posts = [dict(row) for row in cursor.fetchall()]
+
                             if not liked_posts:
                                 st.caption("No liked posts or reels yet.")
                             for lp in liked_posts:
-                                st.markdown(f"**{lp.get('caption', 'Liked Item')}** <span style='font-size: 0.7rem; color: gray;'>({format_to_ist(lp.get('created_at'))})</span>", unsafe_allow_html=True)
+                                st.markdown(f"**{lp.get('caption', 'Liked Item')}** <span style='font-size: 0.7rem; color: gray;'>({lp.get('created_at', '')})</span>", unsafe_allow_html=True)
                                 if lp.get('media_url'):
                                     st.image(lp['media_url'], width=150)
 
@@ -689,13 +914,18 @@ else:
                                 st.rerun()
 
                     st.write("### Posts")
-                    cursor.execute("SELECT * FROM posts WHERE user_id = %s ORDER BY created_at DESC", (profile_user['user_id'],))
-                    user_posts = cursor.fetchall()
+                    if db_type == "mysql":
+                        cursor.execute("SELECT * FROM posts WHERE user_id = %s ORDER BY created_at DESC", (profile_user['user_id'],))
+                        user_posts = cursor.fetchall()
+                    else:
+                        cursor.execute("SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC", (profile_user['user_id'],))
+                        user_posts = [dict(row) for row in cursor.fetchall()]
+
                     if not user_posts:
                         st.caption("No posts yet.")
                     else:
                         for up in user_posts:
-                            post_date_time = format_to_ist(up.get('created_at'))
+                            post_date_time = up.get('created_at', '')
                             st.markdown(f"<span style='font-size: 0.75rem; color: gray;'>📅 {post_date_time}</span>", unsafe_allow_html=True)
                             if up['caption']:
                                 st.write(up['caption'])
