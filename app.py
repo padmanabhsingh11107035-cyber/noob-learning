@@ -1097,19 +1097,20 @@ else:
 
                                 if st.form_submit_button("Update Profile"):
                                     if db_type == "mysql":
-                                        cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE user_id = %s", 
-                                                       (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
-                                    else:
-                                        cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE user_id = ?", 
-                                                       (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
-                                    conn.commit()
-                                    user['name'] = new_name
-                                    user['bio'] = new_bio
-                                    user['age'] = new_age
-                                    user['gender'] = new_gender
-                                    user['birth_date'] = new_birth_date
-                                    st.success("Profile updated successfully!")
-                                    st.rerun()
+            cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE id = %s",
+                           (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['id']))
+        else:
+            cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE id = ?",
+                           (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['id']))
+        
+        conn.commit()
+        user['name'] = new_name
+        user['bio'] = new_bio
+        user['age'] = new_age
+        user['gender'] = new_gender
+        user['birth_date'] = new_birth_date
+        st.success("Profile updated successfully!")
+        st.rerun()
 
                             st.write("### 🔖 Saved Reels & Posts")
                             if db_type == "mysql":
