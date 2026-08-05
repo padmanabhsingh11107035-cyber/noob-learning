@@ -6,6 +6,16 @@ import zoneinfo
 import logging
 import sys
 import re
+@st.cache_resource
+get_db_connection():
+    # Your existing database connection logic goes here
+    # This prevents reconnecting from scratch every time
+    pass
+
+@st.cache_data(ttl=60) # Caches user profiles or feed data for 60 seconds
+def fetch_cached_user_data(username):
+    # Query database safely without waiting on cold network calls every time
+    pass
 
 # ==============================================================================
 # 0. LOGGING AND SYSTEM SETUP
@@ -852,10 +862,42 @@ else:
                         if not follow_rel:
                             if st.button("Follow"):
                                 status = "Pending" if profile_user['account_type'] == 'Private' else "Accepted"
-                                if db_type == "mysql":
-                                    cursor.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (%s, %s, %s, %s)",
-                                                   (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
-                                else:
+                                # Safe fetch for follow relationship
+    cursor.execute("""
+        SELECT * FROM follows 
+        WHERE follower_id = %s AND following_id = %s
+    """ if db_type == "mysql" else """
+        SELECT * FROM follows 
+        WHERE follower_id = ? AND following_id = ?
+    """, (user['user_id'], profile_user['user_id']))
+    
+    row = cursor.fetchone()
+    follow_rel = dict(row) if row else None
+
+    if not follow_rel:
+        if st.button("Follow"):
+            status = "Pending" if profile_user.get('account_type') == 'Private' else "Accepted"
+            if db_type == "mysql":
+                cursor.execute("""
+                    INSERT INTO follows (follower_id, following_id, status, created_at) 
+                    VALUES (%s, %s, %s, %s)
+                """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
+            else:
+                cursor.execute("""
+                    INSERT INTO follows (follower_id, following_id, status, created_at) 
+                    VALUES (?, ?, ?, ?)
+                """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
+            conn.commit()
+            st.rerun()
+    else:
+        # Use .get() to prevent any future KeyErrors
+        rel_status = follow_rel.get('status', 'Accepted')
+        if rel_status == 'Pending':
+            st.info("Request Pending")
+        else:
+            if st.button("Unfollow"):
+                # Add your unfollow delete query here
+                pass
                                     cursor.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (?, ?, ?, ?)",
                                                    (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
                                 conn.commit()
