@@ -988,6 +988,23 @@ else:
             finally:
                 conn.close()
 # ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
+    if st.form_submit_button("Update Profile"):
+                                    success = safe_update_user_profile(
+                                        user['user_id'], 
+                                        new_name, 
+                                        new_bio, 
+                                        new_age, 
+                                        new_gender, 
+                                        new_birth_date
+                                    )
+                                    if success:
+                                        user['name'] = new_name
+                                        user['bio'] = new_bio
+                                        user['age'] = new_age
+                                        user['gender'] = new_gender
+                                        user['birth_date'] = new_birth_date
+                                        st.success("Profile updated successfully!")
+                                        st.rerun()
     elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
         profile_id = st.session_state.viewing_profile_id or user['user_id']
         db_type, conn = get_db_connection()
@@ -2029,3 +2046,41 @@ def render_live_chat(current_user):
 
     time.sleep(3)
     st.rerun()
+###########################################################################################################################################################
+def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
+    """Safely executes the profile update query with proper error handling and logging."""
+    db_type, conn = get_db_connection()
+    if not conn:
+        st.error("Database connection failed.")
+        return False
+    
+    try:
+        cursor = conn.cursor()
+        s_name = sanitize_input(new_name)
+        s_bio = sanitize_input(new_bio)
+        s_gender = sanitize_input(new_gender)
+        s_birth = sanitize_input(new_birth_date)
+        s_age = int(new_age)
+        
+        if db_type == "mysql":
+            query = """
+                UPDATE users 
+                SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s 
+                WHERE user_id = %s
+            """
+            cursor.execute(query, (s_name, s_bio, s_age, s_gender, s_birth, user_id))
+        else:
+            query = """
+                UPDATE users 
+                SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
+                WHERE user_id = ?
+            """
+            cursor.execute(query, (s_name, s_bio, s_age, s_gender, s_birth, user_id))
+            
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"SQL Update Failed: {e}")
+        return False
+    finally:
+        conn.close()
