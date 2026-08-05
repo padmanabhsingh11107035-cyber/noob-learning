@@ -1076,9 +1076,9 @@ else:
                                     try:
                                         pic_bytes = uploaded_pic.getvalue()
                                         if db_type == "mysql":
-                                            cursor.execute("UPDATE users SET profile_pic = %s WHERE id = %s", (pic_bytes, user['user_id']))
+                                            cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
                                         else:
-                                            cursor.execute("UPDATE users SET profile_pic = ? WHERE id = ?", (pic_bytes, user['user_id']))
+                                            cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
                                         conn.commit()
                                         st.success("Profile picture updated successfully! Refreshing...")
                                         st.rerun()
@@ -1097,10 +1097,10 @@ else:
 
                                 if st.form_submit_button("Update Profile"):
                                     if db_type == "mysql":
-                                        cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE id = %s",
+                                        cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE user_id = %s",
                                                        (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
                                     else:
-                                        cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE id = ?",
+                                        cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE user_id = ?",
                                                        (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
                                     
                                     conn.commit()
@@ -1186,7 +1186,7 @@ else:
                 conn.close()
 
 render_footer()
-    #################################################################################################################################
+#################################################################################################################################
 def make_user_follow_saraah(user_id: int):
     """Automatically forces any user to follow the exact Saraah Robotics ID."""
     db_type, conn = get_db_connection()
@@ -1194,7 +1194,6 @@ def make_user_follow_saraah(user_id: int):
         return
     try:
         cursor = conn.cursor()
-        # Directly target the exact username shown in your profile screenshot
         target_username = "SARAAH ROBOTICS"
         
         if db_type == "mysql":
@@ -1206,7 +1205,6 @@ def make_user_follow_saraah(user_id: int):
             row = cursor.fetchone()
             saraah_id = row[0] if row else None
 
-        # If Saraah Robotics account exists and is not the user themselves, ensure a follow entry exists
         if saraah_id and saraah_id != user_id:
             if db_type == "mysql":
                 cursor.execute("""
@@ -1232,7 +1230,6 @@ def render_profile_picture_upload_component(user_id: int):
         
     try:
         cursor = conn.cursor()
-        # Fetch current profile picture field
         if db_type == "mysql":
             cursor.execute("SELECT profile_pic FROM users WHERE user_id = %s LIMIT 1", (user_id,))
             user_row = cursor.fetchone()
@@ -1244,14 +1241,12 @@ def render_profile_picture_upload_component(user_id: int):
 
         st.markdown("### Profile Picture")
         
-        # Check if profile picture is missing or empty
         if not current_pic:
             st.info("No profile picture found. Click below to add one with a '+' indicator style.")
             uploaded_file = st.file_uploader("Upload Profile Picture (+)", type=["png", "jpg", "jpeg"], key="profile_pic_upload_plus")
             
             if uploaded_file is not None:
                 file_bytes = uploaded_file.read()
-                # Update database with new profile picture bytes or path depending on schema
                 if db_type == "mysql":
                     cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (file_bytes, user_id))
                 else:
