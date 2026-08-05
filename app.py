@@ -662,9 +662,8 @@ def render_enhanced_direct_messages(user: Dict[str, Any]):
                         JOIN users u ON gm.sender_id = u.user_id
                         WHERE gm.group_id = %s
                         ORDER BY gm.sent_at ASC
-                    """), 
-                  (selected_group_id,)
-                   g_messages = cursor.fetchall()
+                    """),(selected_group_id,)
+                  g_messages = cursor.fetchall()
 
                     if not g_messages:
                         st.caption("No messages in this group yet. Start the conversation!")
