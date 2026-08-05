@@ -90,7 +90,6 @@ def setup_database_schema():
     if conn:
         try:
             cursor = conn.cursor()
-            # Core Users table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -106,7 +105,6 @@ def setup_database_schema():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Posts table (serves both posts and reels/media)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS posts (
                     post_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -115,47 +113,43 @@ def setup_database_schema():
                     media_url LONGTEXT,
                     likes INT DEFAULT 0,
                     shares INT DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Comments table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS comments (
                     comment_id INT AUTO_INCREMENT PRIMARY KEY,
                     post_id INT NOT NULL,
                     user_id INT NOT NULL,
                     comment_text TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Follows table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS follows (
                     follow_id INT AUTO_INCREMENT PRIMARY KEY,
                     follower_id INT NOT NULL,
                     following_id INT NOT NULL,
                     status VARCHAR(20) DEFAULT 'Accepted',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Direct Messages table (handles post-reply messaging & direct chats)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     message_id INT AUTO_INCREMENT PRIMARY KEY,
                     sender_id INT NOT NULL,
                     receiver_id INT NOT NULL,
                     message_text TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Saved / Liked items table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_interactions (
                     interaction_id INT AUTO_INCREMENT PRIMARY KEY,
                     user_id INT NOT NULL,
                     post_id INT NOT NULL,
                     interaction_type VARCHAR(20) NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
             """)
             conn.commit()
@@ -190,6 +184,7 @@ def sanitize_input(text_str: str) -> str:
     return re.sub(r'<script.*?>.*?</script>', '', text_str, flags=re.DOTALL | re.IGNORECASE).strip()
 
 def format_to_ist(dt_object) -> str:
+    """Converts and formats timestamp objects into exact readable date and IST time."""
     if not dt_object:
         return ""
     if isinstance(dt_object, datetime.datetime):
@@ -198,8 +193,14 @@ def format_to_ist(dt_object) -> str:
             dt_ist = dt_utc.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
         else:
             dt_ist = dt_object.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
-        return dt_ist.strftime("%Y-%m-%d %I:%M:%S %p")
+        return dt_ist.strftime("%B %d, %Y - %I:%M:%S %p")
     return str(dt_object)
+
+def get_current_ist_time() -> str:
+    """Returns current exact IST timestamp string for database insertion."""
+    dt_utc = datetime.datetime.now(datetime.timezone.utc)
+    dt_ist = dt_utc.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
+    return dt_ist.strftime('%Y-%m-%d %H:%M:%S')
 
 def render_footer():
     st.markdown('<div class="app-footer">Powered by Saraah Robotics</div>', unsafe_allow_html=True)
@@ -277,9 +278,10 @@ if not st.session_state.user:
                         if conn:
                             try:
                                 cursor = conn.cursor()
+                                current_ts = get_current_ist_time()
                                 cursor.execute("""
-                                    INSERT INTO users (username, password, name, phone_number, email, gender, account_type, profile_pic) 
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                    INSERT INTO users (username, password, name, phone_number, email, gender, account_type, profile_pic, created_at) 
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 """, (
                                     sanitize_input(reg_username),
                                     reg_password,
@@ -288,7 +290,8 @@ if not st.session_state.user:
                                     sanitize_input(reg_email),
                                     reg_gender,
                                     reg_account_type,
-                                    pic_base64
+                                    pic_base64,
+                                    current_ts
                                 ))
                                 conn.commit()
                                 st.success("Account created successfully! Please log in.")
@@ -376,38 +379,33 @@ else:
                 else:
                     for post in posts:
                         with st.container():
-                            # Author header & Follow action if not self
                             c_h1, c_h2 = st.columns([4, 1])
                             with c_h1:
-                                if post['profile_pic']:
-                                    st.markdown(f"**@{post['username']}** • *{format_to_ist(post['created_at'])}*")
-                                else:
-                                    st.markdown(f"**@{post['username']}** • *{format_to_ist(post['created_at'])}*")
+                                # Displays exact date and time right under the author username
+                                exact_time_str = format_to_ist(post.get('created_at'))
+                                st.markdown(f"**@{post['username']}**<br><span style='font-size: 0.75rem; color: gray;'>📅 {exact_time_str}</span>", unsafe_allow_html=True)
                             with c_h2:
                                 if post['author_id'] != user['user_id']:
-                                    # Check follow status
                                     cur_f = conn.cursor(dictionary=True)
                                     cur_f.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", (user['user_id'], post['author_id']))
                                     rel = cur_f.fetchone()
                                     if not rel:
                                         if st.button("Follow", key=f"feed_follow_{post['post_id']}"):
-                                            cur_f.execute("INSERT INTO follows (follower_id, following_id, status) VALUES (%s, %s, 'Accepted')", (user['user_id'], post['author_id']))
+                                            cur_f.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (%s, %s, 'Accepted', %s)", (user['user_id'], post['author_id'], get_current_ist_time()))
                                             conn.commit()
                                             st.rerun()
 
-                            # Media & Caption Display
                             if post['media_url']:
                                 st.image(post['media_url'], use_container_width=True)
                             if post['caption']:
                                 st.write(post['caption'])
 
-                            # Action Buttons Bar (Like, Comment, Share, Save) matching Reel/Post specs
                             act_col1, act_col2, act_col3, act_col4 = st.columns(4)
                             with act_col1:
-                                if st.button(f"❤️ {post.get('likes', 0)}", key=fLike_{post['post_id']}):
+                                if st.button(f"❤️ {post.get('likes', 0)}", key=f"like_{post['post_id']}"):
                                     cur2 = conn.cursor()
                                     cur2.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = %s", (post['post_id'],))
-                                    cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type) VALUES (%s, %s, 'liked')", (user['user_id'], post['post_id']))
+                                    cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (%s, %s, 'liked', %s)", (user['user_id'], post['post_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.rerun()
                             with act_col2:
@@ -422,11 +420,10 @@ else:
                             with act_col4:
                                 if st.button("🔖 Save", key=f"save_{post['post_id']}"):
                                     cur2 = conn.cursor()
-                                    cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type) VALUES (%s, %s, 'saved')", (user['user_id'], post['post_id']))
+                                    cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (%s, %s, 'saved', %s)", (user['user_id'], post['post_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.toast("Saved to collection!")
 
-                            # Expandable Comments Section & Quick Message/Reply Bar
                             if st.session_state.get(f"show_com_{post['post_id']}", False):
                                 st.markdown("##### Comments")
                                 cur_c = conn.cursor(dictionary=True)
@@ -437,18 +434,18 @@ else:
                                 """, (post['post_id'],))
                                 comments = cur_c.fetchall()
                                 for comm in comments:
-                                    st.caption(f"**@{comm['username']}**: {comm['comment_text']}")
+                                    comm_time = format_to_ist(comm.get('created_at'))
+                                    st.markdown(f"**@{comm['username']}**: {comm['comment_text']} <span style='font-size: 0.7rem; color: gray;'>({comm_time})</span>", unsafe_allow_html=True)
 
                                 with st.form(key=f"comment_form_{post['post_id']}", clear_on_submit=True):
                                     new_comm = st.text_input("Add a comment...")
                                     if st.form_submit_button("Post Comment"):
                                         if new_comm.strip():
-                                            cur_c.execute("INSERT INTO comments (post_id, user_id, comment_text) VALUES (%s, %s, %s)",
-                                                          (post['post_id'], user['user_id'], sanitize_input(new_comm)))
+                                            cur_c.execute("INSERT INTO comments (post_id, user_id, comment_text, created_at) VALUES (%s, %s, %s, %s)",
+                                                          (post['post_id'], user['user_id'], sanitize_input(new_comm), get_current_ist_time()))
                                             conn.commit()
                                             st.rerun()
 
-                            # Quick Message Bar (matching Reel bottom message input view)
                             with st.form(key=f"msg_form_{post['post_id']}", clear_on_submit=True):
                                 msg_input = st.text_input(f"Message @{post['username']}...", placeholder="Say something or tap emoji...")
                                 mc1, mc2, mc3 = st.columns(3)
@@ -462,26 +459,26 @@ else:
                                 submit_msg = st.form_submit_button("Send DM")
                                 if submit_msg and msg_input.strip():
                                     cur_m = conn.cursor()
-                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, %s)",
-                                                  (user['user_id'], post['author_id'], sanitize_input(msg_input)))
+                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, %s, %s)",
+                                                  (user['user_id'], post['author_id'], sanitize_input(msg_input), get_current_ist_time()))
                                     conn.commit()
-                                    st.success("Message sent to author!")
+                                    st.success("Message sent to author with timestamp!")
                                 elif react_laugh:
                                     cur_m = conn.cursor()
-                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, '😂')",
-                                                  (user['user_id'], post['author_id']))
+                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '😂', %s)",
+                                                  (user['user_id'], post['author_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.toast("Reaction sent!")
                                 elif react_love:
                                     cur_m = conn.cursor()
-                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, '😍')",
-                                                  (user['user_id'], post['author_id']))
+                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '😍', %s)",
+                                                  (user['user_id'], post['author_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.toast("Reaction sent!")
                                 elif react_fire:
                                     cur_m = conn.cursor()
-                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, '🔥')",
-                                                  (user['user_id'], post['author_id']))
+                                    cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '🔥', %s)",
+                                                  (user['user_id'], post['author_id'], get_current_ist_time()))
                                     conn.commit()
                                     st.toast("Reaction sent!")
 
@@ -538,10 +535,11 @@ else:
                     if conn:
                         try:
                             cursor = conn.cursor()
-                            cursor.execute("INSERT INTO posts (user_id, caption, media_url) VALUES (%s, %s, %s)", 
-                                           (user['user_id'], sanitize_input(caption), media_url))
+                            current_ts = get_current_ist_time()
+                            cursor.execute("INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (%s, %s, %s, %s)", 
+                                           (user['user_id'], sanitize_input(caption), media_url, current_ts))
                             conn.commit()
-                            st.success("Posted successfully! It is now reflected at the top of the feed.")
+                            st.success(f"Posted successfully at {current_ts} IST! Reflected at the top of the feed.")
                             st.session_state.nav_tab = "Home"
                             st.rerun()
                         finally:
@@ -582,14 +580,16 @@ else:
 
                         for m in messages:
                             sender_name = "You" if m['sender_id'] == user['user_id'] else target_friend['username']
-                            st.markdown(f"**{sender_name}**: {m['message_text']}")
+                            msg_time = format_to_ist(m.get('created_at'))
+                            st.markdown(f"**{sender_name}**: {m['message_text']} <span style='font-size: 0.7rem; color: gray;'>({msg_time})</span>", unsafe_allow_html=True)
 
                         with st.form("chat_send_form", clear_on_submit=True):
                             msg_text = st.text_input("Type a message...")
                             if st.form_submit_button("Send"):
                                 if msg_text.strip():
-                                    cursor.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, %s)",
-                                                   (user['user_id'], target_friend['user_id'], sanitize_input(msg_text)))
+                                    current_ts = get_current_ist_time()
+                                    cursor.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, %s, %s)",
+                                                   (user['user_id'], target_friend['user_id'], sanitize_input(msg_text), current_ts))
                                     conn.commit()
                                     st.rerun()
             finally:
@@ -616,9 +616,8 @@ else:
                         st.subheader(f"@{profile_user['username']}")
                         st.write(f"**{profile_user.get('name', '')}**")
                         st.write(profile_user.get('bio', ''))
-                        st.caption(f"Account Type: {profile_user.get('account_type', 'Public')}")
+                        st.caption(f"Account Type: {profile_user.get('account_type', 'Public')} | Joined: {format_to_ist(profile_user.get('created_at'))}")
 
-                    # Follow Button logic if viewing someone else
                     if profile_user['user_id'] != user['user_id']:
                         cursor.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", 
                                        (user['user_id'], profile_user['user_id']))
@@ -627,8 +626,8 @@ else:
                         if not follow_rel:
                             if st.button("Follow"):
                                 status = "Pending" if profile_user['account_type'] == 'Private' else "Accepted"
-                                cursor.execute("INSERT INTO follows (follower_id, following_id, status) VALUES (%s, %s, %s)",
-                                               (user['user_id'], profile_user['user_id'], status))
+                                cursor.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (%s, %s, %s, %s)",
+                                               (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
                                 conn.commit()
                                 st.rerun()
                         elif follow_rel['status'] == 'Pending':
@@ -642,7 +641,6 @@ else:
 
                     st.divider()
 
-                    # Settings & Management Hub if own profile
                     if profile_user['user_id'] == user['user_id']:
                         with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
                             st.write("### Edit Profile Details")
@@ -667,7 +665,7 @@ else:
                             if not saved_posts:
                                 st.caption("No saved posts or reels yet.")
                             for sp in saved_posts:
-                                st.write(sp.get('caption', 'Saved Item'))
+                                st.markdown(f"**{sp.get('caption', 'Saved Item')}** <span style='font-size: 0.7rem; color: gray;'>({format_to_ist(sp.get('created_at'))})</span>", unsafe_allow_html=True)
                                 if sp.get('media_url'):
                                     st.image(sp['media_url'], width=150)
 
@@ -681,7 +679,7 @@ else:
                             if not liked_posts:
                                 st.caption("No liked posts or reels yet.")
                             for lp in liked_posts:
-                                st.write(lp.get('caption', 'Liked Item'))
+                                st.markdown(f"**{lp.get('caption', 'Liked Item')}** <span style='font-size: 0.7rem; color: gray;'>({format_to_ist(lp.get('created_at'))})</span>", unsafe_allow_html=True)
                                 if lp.get('media_url'):
                                     st.image(lp['media_url'], width=150)
 
@@ -690,7 +688,6 @@ else:
                                 st.session_state.viewing_profile_id = None
                                 st.rerun()
 
-                    # User Posts Grid
                     st.write("### Posts")
                     cursor.execute("SELECT * FROM posts WHERE user_id = %s ORDER BY created_at DESC", (profile_user['user_id'],))
                     user_posts = cursor.fetchall()
@@ -698,6 +695,8 @@ else:
                         st.caption("No posts yet.")
                     else:
                         for up in user_posts:
+                            post_date_time = format_to_ist(up.get('created_at'))
+                            st.markdown(f"<span style='font-size: 0.75rem; color: gray;'>📅 {post_date_time}</span>", unsafe_allow_html=True)
                             if up['caption']:
                                 st.write(up['caption'])
                             if up['media_url']:
