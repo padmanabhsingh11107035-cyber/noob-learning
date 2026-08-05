@@ -973,3 +973,45 @@ def make_user_follow_saraah(user_id: int):
         logger.error(f"Error auto-following Saraah Robotics: {e}")
     finally:
         conn.close()
+##################################################################################################################################################
+def render_profile_picture_upload_component(user_id: int):
+    """Renders a plus sign avatar placeholder if no profile picture exists, allowing users to upload one."""
+    db_type, conn = get_db_connection()
+    if not conn:
+        return
+        
+    try:
+        cursor = conn.cursor()
+        # Fetch current profile picture field
+        if db_type == "mysql":
+            cursor.execute("SELECT profile_pic FROM users WHERE user_id = %s LIMIT 1", (user_id,))
+            user_row = cursor.fetchone()
+            current_pic = user_row['profile_pic'] if user_row else None
+        else:
+            cursor.execute("SELECT profile_pic FROM users WHERE user_id = ? LIMIT 1", (user_id,))
+            row = cursor.fetchone()
+            current_pic = row[0] if row else None
+
+        st.markdown("### Profile Picture")
+        
+        # Check if profile picture is missing or empty
+        if not current_pic:
+            st.info("No profile picture found. Click below to add one with a '+' indicator style.")
+            uploaded_file = st.file_uploader("Upload Profile Picture (+)", type=["png", "jpg", "jpeg"], key="profile_pic_upload_plus")
+            
+            if uploaded_file is not None:
+                file_bytes = uploaded_file.read()
+                # Update database with new profile picture bytes or path depending on schema
+                if db_type == "mysql":
+                    cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (file_bytes, user_id))
+                else:
+                    cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (file_bytes, user_id))
+                conn.commit()
+                st.success("Profile picture updated successfully! Refreshing...")
+                st.rerun()
+        else:
+            st.success("Profile picture is already set.")
+    except Exception as e:
+        logger.error(f"Error handling profile picture upload: {e}")
+    finally:
+        conn.close()
