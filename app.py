@@ -881,22 +881,24 @@ else:
 
     # ------------------ MAIN TABS NAVIGATION ------------------
     (
-        app_tab_feed,
-        app_tab_search,
-        app_tab_friends,
-        app_tab_create,
-        app_tab_msg,
-        app_tab_profile,
-        app_tab_chatway
-    ) = st.tabs([
-        "🏠 Feed",
-        "🔍 Search",
-        "👥 Add Friends",
-        "➕ Create",
-        "💬 Direct",
-        "👤 Profile",
-        "🤖 AI Support"
-    ])
+    app_tab_feed,
+    app_tab_search,
+    app_tab_friends,
+    app_tab_create,
+    app_tab_reels,
+    app_tab_msg,
+    app_tab_profile,
+    app_tab_chatway,
+) = st.tabs([
+    "🏠 Feed",
+    "🔍 Search",
+    "👥 Add Friends",
+    "➕ Create",
+    "🎬 Reels",
+    "💬 Direct",
+    "👤 Profile",
+    "🤖 AI Support"
+])
 
     # ==========================================================================
     # TAB 1: MAIN FEED
@@ -1369,85 +1371,124 @@ updateClock();
 # Render the component in your app layout
 components.html(live_clock_html, height=45)
 
-# --- REELS SECTION ---
-if menu == "🎬 Reels":
-  st.markdown(
-      '<p class="main-header">🎬 Community Reels</p>', unsafe_allow_html=True
-  )
-  st.write("Watch short video clips shared by other users or upload your own!")
+with app_tab_reels:
 
-  # Upload New Reel Form
-  with st.expander("📤 Upload a New Reel"):
-    with st.form("reel_form", clear_on_submit=True):
-      reel_caption = st.text_input("Caption / Title")
-      reel_url = st.text_input(
-          "Video Link (Direct MP4 URL or YouTube/Shorts link)"
-      )
-      submitted_reel = st.form_submit_button("Publish Reel")
+    st.markdown(
+        '<p class="main-header">🎬 Community Reels</p>',
+        unsafe_allow_html=True
+    )
 
-      if submitted_reel and reel_caption.strip() and reel_url.strip():
-        try:
-          mydb = get_db_connection()
-          mycursor = mydb.cursor()
-          mycursor.execute(
-              "INSERT INTO reels (username, caption, video_url, timestamp)"
-              " VALUES (%s, %s, %s, %s)",
-              (
-                  st.session_state.username,
-                  reel_caption,
-                  reel_url,
-                  get_current_time(),
-              ),
-          )
-          mydb.commit()
-          mycursor.close()
-          mydb.close()
-          st.success("Reel uploaded successfully!")
-          st.rerun()
-        except Exception as e:
-          st.error(f"Error uploading reel: {e}")
+    st.write("Watch reels shared by the community or upload your own.")
 
-  st.divider()
+    # ================= Upload Reel =================
 
-  # Fetch and Display Reels Randomly
-  try:
-    mydb = get_db_connection()
-    mycursor = mydb.cursor(dictionary=True)
-    # ORDER BY RAND() fetches them completely randomly for each user
-    mycursor.execute("SELECT * FROM reels ORDER BY RAND()")
-    reels = mycursor.fetchall()
-    mycursor.close()
-    mydb.close()
+    with st.expander("📤 Upload Reel"):
 
-    if reels:
-      # Center column container to give it a vertical "reel/shorts" feed look
-      col1, col2, col3 = st.columns([1, 2, 1])
-      with col2:
-        for r in reels:
-          st.markdown(
-              f"""
-                    <div class="card" style="text-align: center;">
-                        <h4 style="margin-bottom: 5px;">@{r['username']}</h4>
-                        <p style="color: #bbb; font-size: 14px;">{r['caption']}</p>
-                    </div>
-                    """,
-              unsafe_allow_html=True,
-          )
+        with st.form("upload_reel", clear_on_submit=True):
 
-          # Render video player
-          try:
-            st.video(r["video_url"])
-          except Exception:
-            st.error(
-                "Could not load video. Make sure the link is a valid direct"
-                " video source or YouTube link."
+            reel_caption = st.text_input("Caption")
+
+            reel_url = st.text_input(
+                "Video Link (YouTube / Shorts / MP4)"
             )
 
-          st.markdown("---")
-    else:
-      st.info("No reels uploaded yet. Be the first to share a short video clip!")
-  except Exception as e:
-    st.error(f"Could not load reels feed: {e}")
-# ==============================================================================
-# END OF FILE (app.py)
-# ==============================================================================
+            submit_reel = st.form_submit_button("Upload Reel")
+
+            if submit_reel:
+
+                if reel_caption.strip() == "" or reel_url.strip() == "":
+                    st.warning("Please fill all fields.")
+
+                else:
+
+                    try:
+
+                        conn = get_db_connection()
+
+                        cursor = conn.cursor()
+
+                        username = st.session_state.user["username"]
+
+                        from datetime import datetime
+
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                        cursor.execute("""
+                        INSERT INTO reels
+                        (username, caption, video_url, timestamp)
+                        VALUES (%s,%s,%s,%s)
+                        """,(
+                            username,
+                            reel_caption,
+                            reel_url,
+                            timestamp
+                        ))
+
+                        conn.commit()
+
+                        cursor.close()
+
+                        conn.close()
+
+                        st.success("✅ Reel uploaded successfully!")
+
+                        st.rerun()
+
+                    except Exception as e:
+
+                        st.error(e)
+
+    st.divider()
+
+    # ================= Show Reels =================
+
+    try:
+
+        conn = get_db_connection()
+
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+        SELECT *
+        FROM reels
+        ORDER BY RAND()
+        """)
+
+        reels = cursor.fetchall()
+
+        cursor.close()
+
+        conn.close()
+
+        if len(reels) == 0:
+
+            st.info("🎬 No reels uploaded yet.")
+
+        else:
+
+            left, center, right = st.columns([1,2,1])
+
+            with center:
+
+                for reel in reels:
+
+                    st.markdown(f"""
+                    <div class="card">
+
+                    <h4>👤 {reel['username']}</h4>
+
+                    <p>{reel['caption']}</p>
+
+                    </div>
+                    """,
+                    unsafe_allow_html=True)
+
+                    st.video(reel["video_url"])
+
+                    st.caption("Uploaded on : " + str(reel["timestamp"]))
+
+                    st.divider()
+
+    except Exception as e:
+
+        st.error(e)
