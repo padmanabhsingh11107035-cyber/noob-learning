@@ -10,6 +10,7 @@ import streamlit as st
 import pymysql
 
 @st.cache_resource
+@st.cache_resource
 def get_db_connection():
     try:
         conn = pymysql.connect(
@@ -23,6 +24,7 @@ def get_db_connection():
         )
         return "mysql", conn
     except Exception as e:
+        st.error(f"Database Connection Failed: {e}")
         return "mysql", None
 
 
