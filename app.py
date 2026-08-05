@@ -614,63 +614,64 @@ def render_enhanced_direct_messages(user: Dict[str, Any]):
                 finally:
                     conn.close()
 
-    # ------------------ 2. GROUP CHAT ------------------
+# ------------------ 2. GROUP CHAT ------------------
     conn = get_db_connection()
-        if conn:
-            try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM chat_groups ORDER BY group_id DESC")
-                groups = cursor.fetchall()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM chat_groups ORDER BY group_id DESC")
+            groups = cursor.fetchall()
 
-                if not groups:
-                    st.info("No community groups created yet. Create the first one above!")
+            if not groups:
+                st.info("No community groups created yet. Create the first one above!")
+            else:
+                group_options = {f"#{g['group_id']} - {g['group_name']}": g['group_id'] for g in groups}
+                selected_group_str = st.selectbox("Select Chat Room:", list(group_options.keys()))
+                selected_group_id = group_options[selected_group_str]
+
+                st.divider()
+
+                cursor.execute("""
+                    SELECT gm.sender_id, gm.message_text, gm.sent_at, u.username
+                    FROM group_messages gm
+                    JOIN users u ON gm.sender_id = u.user_id
+                    WHERE gm.group_id = %s
+                    ORDER BY gm.sent_at ASC
+                """, (selected_group_id,))
+                g_messages = cursor.fetchall()
+                
+                if not g_messages:
+                    st.caption("No messages in this group yet. Start the conversation!")
                 else:
-                    group_options = {f"#{g['group_id']} - {g['group_name']}": g['group_id'] for g in groups}
-                    selected_group_str = st.selectbox("Select Chat Room:", list(group_options.keys()))
-                    selected_group_id = group_options[selected_group_str]
+                    for gm in g_messages:
+                        is_me = (gm['sender_id'] == user['user_id'])
+                        align = "user" if is_me else "assistant"
+                        formatted_time = format_to_ist(gm['sent_at'])
 
-                    st.divider()
+                        with st.chat_message(align):
+                            st.markdown(f"**@{gm['username']}** `(ID: {gm['sender_id']})` • *{formatted_time}*")
+                            st.write(gm['message_text'])
 
-                    cursor.execute("""
-                        SELECT gm.sender_id, gm.message_text, gm.sent_at, u.username
-                        FROM group_messages gm
-                        JOIN users u ON gm.sender_id = u.user_id
-                        WHERE gm.group_id = %s
-                        ORDER BY gm.sent_at ASC
-                    """, (selected_group_id,))
-                    g_messages = cursor.fetchall()
-                    if not g_messages:
-                        st.caption("No messages in this group yet. Start the conversation!")
-                    else:
-                        for gm in g_messages:
-                            is_me = (gm['sender_id'] == user['user_id'])
-                            align = "user" if is_me else "assistant"
-                            formatted_time = format_to_ist(gm['sent_at'])
+                st.divider()
+                with st.form(key=f"group_enhanced_form_{selected_group_id}", clear_on_submit=True):
+                    g_msg_input = st.text_input("Type message to group...")
+                    submit_g_msg = st.form_submit_button("Send to Group", use_container_width=True)
 
-                            with st.chat_message(align):
-                                st.markdown(f"**@{gm['username']}** `(ID: {gm['sender_id']})` • *{formatted_time}*")
-                                st.write(gm['message_text'])
-
-                    st.divider()
-                    with st.form(key=f"group_enhanced_form_{selected_group_id}", clear_on_submit=True):
-                        g_msg_input = st.text_input("Type message to group...")
-                        submit_g_msg = st.form_submit_button("Send to Group", use_container_width=True)
-
-                        if submit_g_msg and g_msg_input.strip():
-                            clean_g_msg = sanitize_input(g_msg_input)
-                            c_g_send = conn.cursor()
-                            now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
-                            c_g_send.execute(
-                                "INSERT INTO group_messages (group_id, sender_id, message_text, sent_at) VALUES (%s, %s, %s, %s)",
-                                (selected_group_id, user['user_id'], clean_g_msg, now_ist)
-                            )
-                            conn.commit()
-                            st.toast("Group message sent!", icon="👥")
-                            st.rerun()
-            except Exception as e:
-                st.error(f"Group Chat Error: {e}")
-            finally:
-                conn.close()
+                    if submit_g_msg and g_msg_input.strip():
+                        clean_g_msg = sanitize_input(g_msg_input)
+                        c_g_send = conn.cursor()
+                        now_ist = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
+                        c_g_send.execute(
+                            "INSERT INTO group_messages (group_id, sender_id, message_text, sent_at) VALUES (%s, %s, %s, %s)",
+                            (selected_group_id, user['user_id'], clean_g_msg, now_ist)
+                        )
+                        conn.commit()
+                        st.toast("Group message sent!", icon="👥")
+                        st.rerun()
+        except Exception as e:
+            st.error(f"Group Chat Error: {e}")
+        finally:
+            conn.close()
 
 
 # ==============================================================================
