@@ -718,43 +718,36 @@ else:
                 else:
                     st.warning("Provide a caption or media.")
 
-    # ------------------ TAB 4: CHAT & GROUPS ------------------
+   # ------------------ TAB 4: CHAT & GROUPS ------------------
     elif st.session_state.nav_tab == "Chat":
         st.subheader("Messages & Friend Chats")
         db_type, conn = get_db_connection()
         if conn:
             try:
-                cursor = conn.cursor(dictionary=True) if db_type == "mysql" else conn.cursor()
+                # Use standard cursor without dictionary=True to prevent driver mismatch bugs
+                cursor = conn.cursor()
                 
-                # Step 1: Get all user IDs of accepted friends safely
-                if db_type == "mysql":
-                    cursor.execute("SELECT following_id FROM follows WHERE follower_id = %s AND status = 'Accepted'", (user['user_id'],))
-                    following_rows = cursor.fetchall()
-                    following = [r.get('following_id') for r in following_rows if r.get('following_id')]
-                    
-                    cursor.execute("SELECT follower_id FROM follows WHERE following_id = %s AND status = 'Accepted'", (user['user_id'],))
-                    follower_rows = cursor.fetchall()
-                    followers = [r.get('follower_id') for r in follower_rows if r.get('follower_id')]
-                else:
-                    cursor.execute("SELECT following_id FROM follows WHERE follower_id = ? AND status = 'Accepted'", (user['user_id'],))
-                    following = [dict(row)['following_id'] for row in cursor.fetchall()]
-                    
-                    cursor.execute("SELECT follower_id FROM follows WHERE following_id = ? AND status = 'Accepted'", (user['user_id'],))
-                    followers = [dict(row)['follower_id'] for row in cursor.fetchall()]
+                placeholder = "%s" if db_type == "mysql" else "?"
+                
+                # Step 1: Get all user IDs of accepted friends securely
+                cursor.execute(f"SELECT following_id FROM follows WHERE follower_id = {placeholder} AND status = 'Accepted'", (user['user_id'],))
+                following = [row[0] for row in cursor.fetchall() if row[0]]
+                
+                cursor.execute(f"SELECT follower_id FROM follows WHERE following_id = {placeholder} AND status = 'Accepted'", (user['user_id'],))
+                followers = [row[0] for row in cursor.fetchall() if row[0]]
 
                 friend_ids = list(set(following + followers))
                 
                 friends = []
                 if friend_ids:
-                    # Step 2: Fetch usernames for those friend IDs safely
-                    format_strings = ','.join(['%s' if db_type == "mysql" else '?'] * len(friend_ids))
+                    # Step 2: Fetch usernames for those friend IDs
+                    format_strings = ','.join([placeholder] * len(friend_ids))
                     query = f"SELECT user_id, username FROM users WHERE user_id IN ({format_strings})"
                     cursor.execute(query, tuple(friend_ids))
                     
-                    if db_type == "mysql":
-                        friends = cursor.fetchall()
-                    else:
-                        friends = [dict(row) for row in cursor.fetchall()]
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        friends.append({"user_id": r[0], "username": r[1]})
 
                 if not friends:
                     st.info("You can only chat with users who are your friends (mutual follow or accepted request).")
@@ -766,20 +759,21 @@ else:
                     if target_friend:
                         st.write(f"### Chat with @{target_friend['username']}")
                         
-                        if db_type == "mysql":
-                            cursor.execute("""
-                                SELECT * FROM messages 
-                                WHERE (sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s)
-                                ORDER BY created_at ASC
-                            """, (user['user_id'], target_friend['user_id'], target_friend['user_id'], user['user_id']))
-                            messages = cursor.fetchall()
-                        else:
-                            cursor.execute("""
-                                SELECT * FROM messages 
-                                WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-                                ORDER BY created_at ASC
-                            """, (user['user_id'], target_friend['user_id'], target_friend['user_id'], user['user_id']))
-                            messages = [dict(row) for row in cursor.fetchall()]
+                        cursor.execute(f"""
+                            SELECT sender_id, receiver_id, message_text, created_at FROM messages 
+                            WHERE (sender_id = {placeholder} AND receiver_id = {placeholder}) OR (sender_id = {placeholder} AND receiver_id = {placeholder})
+                            ORDER BY created_at ASC
+                        """, (user['user_id'], target_friend['user_id'], target_friend['user_id'], user['user_id']))
+                        
+                        msg_rows = cursor.fetchall()
+                        messages = []
+                        for mr in msg_rows:
+                            messages.append({
+                                "sender_id": mr[0],
+                                "receiver_id": mr[1],
+                                "message_text": mr[2],
+                                "created_at": mr[3]
+                            })
 
                         for m in messages:
                             sender_name = "You" if m['sender_id'] == user['user_id'] else target_friend['username']
@@ -791,12 +785,8 @@ else:
                             if st.form_submit_button("Send"):
                                 if msg_text.strip():
                                     current_ts = get_current_ist_time()
-                                    if db_type == "mysql":
-                                        cursor.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, %s, %s)",
-                                                       (user['user_id'], target_friend['user_id'], sanitize_input(msg_text), current_ts))
-                                    else:
-                                        cursor.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, ?, ?)",
-                                                       (user['user_id'], target_friend['user_id'], sanitize_input(msg_text), current_ts))
+                                    cursor.execute(f"INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
+                                                   (user['user_id'], target_friend['user_id'], sanitize_input(msg_text), current_ts))
                                     conn.commit()
                                     st.rerun()
             finally:
