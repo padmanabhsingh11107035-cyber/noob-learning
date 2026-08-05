@@ -1127,7 +1127,6 @@ else:
                                     WHERE ui.user_id = ? AND ui.interaction_type = 'saved'
                                 """, (user['user_id'],))
                                 saved_posts = [dict(row) for row in cursor.fetchall()]
-
                             if not saved_posts:
                                 st.caption("No saved posts or reels yet.")
                             for sp in saved_posts:
