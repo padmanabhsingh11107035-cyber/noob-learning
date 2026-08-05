@@ -727,21 +727,23 @@ else:
                 if db_type == "mysql":
                     cursor = conn.cursor(dictionary=True)
                     cursor.execute("""
-                        SELECT u.user_id, u.username FROM users u 
-                        JOIN follows f ON f.following_id = u.user_id AND f.follower_id = %s AND f.status = 'Accepted'
-                        UNION
-                        SELECT u.user_id, u.username FROM users u 
-                        JOIN follows f ON f.follower_id = u.user_id AND f.following_id = %s AND f.status = 'Accepted'
+                        SELECT DISTINCT u.user_id, u.username FROM users u 
+                        WHERE u.user_id IN (
+                            SELECT following_id FROM follows WHERE follower_id = %s AND status = 'Accepted'
+                            UNION
+                            SELECT follower_id FROM follows WHERE following_id = %s AND status = 'Accepted'
+                        )
                     """, (user['user_id'], user['user_id']))
                     friends = cursor.fetchall()
                 else:
                     cursor = conn.cursor()
                     cursor.execute("""
-                        SELECT u.user_id, u.username FROM users u 
-                        JOIN follows f ON f.following_id = u.user_id AND f.follower_id = ? AND f.status = 'Accepted'
-                        UNION
-                        SELECT u.user_id, u.username FROM users u 
-                        JOIN follows f ON f.follower_id = u.user_id AND f.following_id = ? AND f.status = 'Accepted'
+                        SELECT DISTINCT u.user_id, u.username FROM users u 
+                        WHERE u.user_id IN (
+                            SELECT following_id FROM follows WHERE follower_id = ? AND status = 'Accepted'
+                            UNION
+                            SELECT follower_id FROM follows WHERE following_id = ? AND status = 'Accepted'
+                        )
                     """, (user['user_id'], user['user_id']))
                     friends = [dict(row) for row in cursor.fetchall()]
 
@@ -790,7 +792,6 @@ else:
                                     st.rerun()
             finally:
                 conn.close()
-
     # ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
     elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
         profile_id = st.session_state.viewing_profile_id or user['user_id']
