@@ -83,7 +83,6 @@ if 'auth_mode' not in st.session_state:
 # --- CUSTOM CSS FOR GREEN BUTTON ---
 st.markdown("""
     <style>
-    /* Target the primary form submit button to make it green */
     div.stFormSubmitButton > button {
         background-color: #28a745 !important;
         color: white !important;
@@ -100,10 +99,10 @@ st.markdown("""
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # Stylish Font Header replacing the camera
+        # Stylish Font Header in Black
         st.markdown("""
             <div style='text-align: center; margin-top: 40px; margin-bottom: 25px;'>
-                <h1 style='font-family: "Brush Script MT", cursive, sans-serif; font-size: 48px; background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: bold;'>
+                <h1 style='font-family: "Brush Script MT", cursive, sans-serif; font-size: 48px; color: #000000; font-weight: bold;'>
                     Noob Learning
                 </h1>
             </div>
