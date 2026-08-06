@@ -4,6 +4,7 @@ import datetime
 import logging
 import sys
 import base64
+from streamlit_autorefresh import st_autorefresh
 
 # ==============================================================================
 # 0. LOGGING & PAGE CONFIG
@@ -500,7 +501,6 @@ if current_tab == "Feed":
                 if p_dict['account_type'] == 'Private' and p_dict['username'] != username:
                     continue
                 
-                # FIXED: Used st.markdown with unsafe_allow_html=True and text replacement to render newlines properly instead of wrapping text in code blocks
                 formatted_caption = p_dict['caption'].replace('\n', '<br>')
                 
                 st.markdown(f"""
@@ -522,7 +522,7 @@ if current_tab == "Feed":
                 <b style="color: white;">Platform Features:</b>
                 <ul style="color: #aaa; font-size: 13px; padding-left: 20px; line-height: 1.6;">
                     <li>🎬 <b>Reels Hub:</b> Watch and post bite-sized learning reels.</li>
-                    <li>💬 <b>Live Chat:</b> Direct messaging with zero lag.</li>
+                    <li>💬 <b>Live Chat:</b> Direct messaging with auto-refresh.</li>
                     <li>👤 <b>Custom Profiles:</b> Public/Private badges & bios.</li>
                 </ul>
             </div>
@@ -694,6 +694,9 @@ elif current_tab == "Chat":
             st.markdown("<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>", unsafe_allow_html=True)
             
     else:
+        # ENABLE AUTO-REFRESH EVERY 3 SECONDS FOR LIVE WHATSAPP-LIKE EXPERIENCE
+        st_autorefresh(interval=3000, limit=None, key="whatsapp_chat_autorefresh")
+        
         peer_name = st.session_state.active_chat_user
         
         c_back, c_title = st.columns([1, 6])
@@ -732,8 +735,8 @@ elif current_tab == "Chat":
                         st.write(m['message'])
                         st.caption(f"{time_only} ✓✓")
                 else:
-                    peer_initial = peer_name[0].upper()
-                    with st.chat_message("assistant", avatar=peer_initial):
+                    # FIXED: Using a valid emoji string instead of a single letter to prevent StreamlitAPIException crash
+                    with st.chat_message("assistant", avatar="🤖"):
                         st.write(m['message'])
                         st.caption(time_only)
         
