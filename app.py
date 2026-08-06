@@ -988,150 +988,125 @@ else:
             finally:
                 conn.close()
 # ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
-with st.form("edit_profile_form"):
-    new_name = st.text_input("Name", value=user.get('name', '') or '', key="edit_name_input")
-    new_bio = st.text_area("Bio", value=user.get('bio', '') or '', key="edit_bio_input")
-    new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18), key="edit_age_input")
-    gender_options = ["Male", "Female", "Other", "Prefer not to say"]
-    current_gender = user.get('gender')
-    gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
-    new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
-    new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '', key="edit_birthdate_input")
+elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
+    profile_id = st.session_state.viewing_profile_id or user['user_id']
+    db_type, conn = get_db_connection()
+    if conn:
+        try:
+            if db_type == "mysql":
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT * FROM users WHERE user_id = %s", (profile_id,))
+                profile_user = cursor.fetchone()
+            else:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
+                row = cursor.fetchone()
+                profile_user = dict(row) if row else None
 
-                                if st.form_submit_button("Update Profile"):
-                                    success = safe_update_user_profile(
-                                        user['user_id'], 
-                                        new_name, 
-                                        new_bio, 
-                                        new_age, 
-                                        new_gender, 
-                                        new_birth_date
-                                    )
-                                    if success:
-                                        user['name'] = new_name
-                                        user['bio'] = new_bio
-                                        user['age'] = new_age
-                                        user['gender'] = new_gender
-                                        user['birth_date'] = new_birth_date
-                                        st.success("Profile updated successfully!")
-                                        st.rerun()
-    elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
-        profile_id = st.session_state.viewing_profile_id or user['user_id']
-        db_type, conn = get_db_connection()
-        if conn:
-            try:
-                if db_type == "mysql":
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("SELECT * FROM users WHERE user_id = %s", (profile_id,))
-                    profile_user = cursor.fetchone()
-                else:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
-                    row = cursor.fetchone()
-                    profile_user = dict(row) if row else None
+            if profile_user:
+                col_p1, col_p2 = st.columns([1, 3])
+                with col_p1:
+                    if profile_user.get('profile_pic'):
+                        st.image(profile_user['profile_pic'], width=100)
+                    else:
+                        st.write("👤")
+                with col_p2:
+                    st.subheader(f"@{profile_user['username']}")
+                    st.write(f"**Name:** {profile_user.get('name', 'N/A')}")
+                    st.write(f"**User ID:** {profile_user.get('user_id', 'N/A')}")
+                    st.write(f"**Bio:** {profile_user.get('bio', '')}")
+                    
+                    st.write(f"**Age:** {profile_user.get('age', 'N/A')} | **Gender:** {profile_user.get('gender', 'N/A')}")
+                    st.write(f"**Birth Date:** {profile_user.get('birth_date', 'N/A')}")
+                    
+                    st.caption(f"Account Type: {profile_user.get('account_type', 'Public')} | Joined: {profile_user.get('created_at', '')}")
 
-                if profile_user:
-                    col_p1, col_p2 = st.columns([1, 3])
-                    with col_p1:
-                        if profile_user.get('profile_pic'):
-                            st.image(profile_user['profile_pic'], width=100)
+                if profile_user['user_id'] != user['user_id']:
+                    if db_type == "mysql":
+                        cursor.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", 
+                                       (user['user_id'], profile_user['user_id']))
+                        follow_rel = cursor.fetchone()
+                    else:
+                        cursor.execute("SELECT * FROM follows WHERE follower_id = ? AND following_id = ?", 
+                                       (user['user_id'], profile_user['user_id']))
+                        row = cursor.fetchone()
+                        follow_rel = dict(row) if row else None
+
+                    if not follow_rel:
+                        if st.button("Follow", key="profile_follow_btn"):
+                            status = "Pending" if profile_user.get('account_type') == 'Private' else "Accepted"
+                            if db_type == "mysql":
+                                cursor.execute("""
+                                    INSERT INTO follows (follower_id, following_id, status, created_at) 
+                                    VALUES (%s, %s, %s, %s)
+                                """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
+                            else:
+                                cursor.execute("""
+                                    INSERT INTO follows (follower_id, following_id, status, created_at) 
+                                    VALUES (?, ?, ?, ?)
+                                """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
+                            conn.commit()
+                            st.rerun()
+                    else:
+                        rel_status = follow_rel.get('status', 'Accepted')
+                        if rel_status == 'Pending':
+                            st.button("Requested", disabled=True, key="profile_requested_btn")
                         else:
-                            st.write("👤")
-                    with col_p2:
-                        st.subheader(f"@{profile_user['username']}")
-                        st.write(f"**Name:** {profile_user.get('name', 'N/A')}")
-                        st.write(f"**User ID:** {profile_user.get('user_id', 'N/A')}")
-                        st.write(f"**Bio:** {profile_user.get('bio', '')}")
-                        
-                        st.write(f"**Age:** {profile_user.get('age', 'N/A')} | **Gender:** {profile_user.get('gender', 'N/A')}")
-                        st.write(f"**Birth Date:** {profile_user.get('birth_date', 'N/A')}")
-                        
-                        st.caption(f"Account Type: {profile_user.get('account_type', 'Public')} | Joined: {profile_user.get('created_at', '')}")
-
-                    if profile_user['user_id'] != user['user_id']:
-                        if db_type == "mysql":
-                            cursor.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", 
-                                           (user['user_id'], profile_user['user_id']))
-                            follow_rel = cursor.fetchone()
-                        else:
-                            cursor.execute("SELECT * FROM follows WHERE follower_id = ? AND following_id = ?", 
-                                           (user['user_id'], profile_user['user_id']))
-                            row = cursor.fetchone()
-                            follow_rel = dict(row) if row else None
-
-                        if not follow_rel:
-                            if st.button("Follow", key="profile_follow_btn"):
-                                status = "Pending" if profile_user.get('account_type') == 'Private' else "Accepted"
+                            if st.button("Unfollow", key="profile_unfollow_btn"):
                                 if db_type == "mysql":
-                                    cursor.execute("""
-                                        INSERT INTO follows (follower_id, following_id, status, created_at) 
-                                        VALUES (%s, %s, %s, %s)
-                                    """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
+                                    cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s",
+                                                   (user['user_id'], profile_user['user_id']))
                                 else:
-                                    cursor.execute("""
-                                        INSERT INTO follows (follower_id, following_id, status, created_at) 
-                                        VALUES (?, ?, ?, ?)
-                                    """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
+                                    cursor.execute("DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
+                                                   (user['user_id'], profile_user['user_id']))
                                 conn.commit()
                                 st.rerun()
-                        else:
-                            rel_status = follow_rel.get('status', 'Accepted')
-                            if rel_status == 'Pending':
-                                st.button("Requested", disabled=True, key="profile_requested_btn")
-                            else:
-                                if st.button("Unfollow", key="profile_unfollow_btn"):
+
+                st.divider()
+
+                if profile_user['user_id'] == user['user_id']:
+                    with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
+                        st.write("### Edit Profile Details")
+                        
+                        st.markdown("#### Update Profile Picture")
+                        uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
+
+                        if uploaded_pic is not None:
+                            st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
+                            if st.button("Save Profile Picture", key="save_profile_pic_btn"):
+                                try:
+                                    pic_bytes = uploaded_pic.getvalue()
                                     if db_type == "mysql":
-                                        cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s",
-                                                       (user['user_id'], profile_user['user_id']))
+                                        cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
                                     else:
-                                        cursor.execute("DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
-                                                       (user['user_id'], profile_user['user_id']))
+                                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
                                     conn.commit()
+                                    st.success("Profile picture updated successfully! Refreshing...")
                                     st.rerun()
+                                except Exception as img_err:
+                                    st.error(f"Error updating profile picture: {img_err}")
 
-                    st.divider()
+                        # FORM WRAPPER WITH CORRECT ALIGNED INDENTATION
+                        with st.form("edit_profile_form"):
+                            new_name = st.text_input("Name", value=user.get('name', '') or '', key="edit_name_input")
+                            new_bio = st.text_area("Bio", value=user.get('bio', '') or '', key="edit_bio_input")
+                            new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18), key="edit_age_input")
+                            gender_options = ["Male", "Female", "Other", "Prefer not to say"]
+                            current_gender = user.get('gender')
+                            gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
+                            new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
+                            new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '', key="edit_birthdate_input")
 
-                    if profile_user['user_id'] == user['user_id']:
-                        with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
-                            st.write("### Edit Profile Details")
-                            
-                            st.markdown("#### Update Profile Picture")
-                            uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
-
-                            if uploaded_pic is not None:
-                                st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
-                                if st.button("Save Profile Picture", key="save_profile_pic_btn"):
-                                    try:
-                                        pic_bytes = uploaded_pic.getvalue()
-                                        if db_type == "mysql":
-                                            cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
-                                        else:
-                                            cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
-                                        conn.commit()
-                                        st.success("Profile picture updated successfully! Refreshing...")
-                                        st.rerun()
-                                    except Exception as img_err:
-                                        st.error(f"Error updating profile picture: {img_err}")
-
-                            with st.form("edit_profile_form"):
-                                new_name = st.text_input("Name", value=user.get('name', '') or '', key="edit_name_input")
-                                new_bio = st.text_area("Bio", value=user.get('bio', '') or '', key="edit_bio_input")
-                                new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18), key="edit_age_input")
-                                gender_options = ["Male", "Female", "Other", "Prefer not to say"]
-                                current_gender = user.get('gender')
-                                gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
-                                new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
-                                new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '', key="edit_birthdate_input")
-
-                                if st.form_submit_button("Update Profile"):
-                                    if db_type == "mysql":
-                                        cursor.execute("UPDATE users SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s WHERE user_id = %s",
-                                                       (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
-                                    else:
-                                        cursor.execute("UPDATE users SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? WHERE user_id = ?",
-                                                       (sanitize_input(new_name), sanitize_input(new_bio), new_age, sanitize_input(new_gender), sanitize_input(new_birth_date), user['user_id']))
-                                    
-                                    conn.commit()
+                            if st.form_submit_button("Update Profile"):
+                                success = safe_update_user_profile(
+                                    user['user_id'], 
+                                    new_name, 
+                                    new_bio, 
+                                    new_age, 
+                                    new_gender, 
+                                    new_birth_date
+                                )
+                                if success:
                                     user['name'] = new_name
                                     user['bio'] = new_bio
                                     user['age'] = new_age
@@ -1139,78 +1114,78 @@ with st.form("edit_profile_form"):
                                     user['birth_date'] = new_birth_date
                                     st.success("Profile updated successfully!")
                                     st.rerun()
-                            
-                            st.write("### 🔖 Saved Reels & Posts")
-                            if db_type == "mysql":
-                                cursor.execute("""
-                                    SELECT p.* FROM posts p 
-                                    JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                    WHERE ui.user_id = %s AND ui.interaction_type = 'saved'
-                                """, (user['user_id'],))
-                                saved_posts = cursor.fetchall()
-                            else:
-                                cursor.execute("""
-                                    SELECT p.* FROM posts p 
-                                    JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                    WHERE ui.user_id = ? AND ui.interaction_type = 'saved'
-                                """, (user['user_id'],))
-                                saved_posts = [dict(row) for row in cursor.fetchall()]
-                            if not saved_posts:
-                                st.caption("No saved posts or reels yet.")
-                            for sp in saved_posts:
-                                st.markdown(f"**{sp.get('caption', 'Saved Item')}** <span style='font-size: 0.7rem; color: gray;'>({sp.get('created_at', '')})</span>", unsafe_allow_html=True)
-                                if sp.get('media_url'):
-                                    st.image(sp['media_url'], width=150)
+                        
+                        st.write("### 🔖 Saved Reels & Posts")
+                        if db_type == "mysql":
+                            cursor.execute("""
+                                SELECT p.* FROM posts p 
+                                JOIN user_interactions ui ON p.post_id = ui.post_id 
+                                WHERE ui.user_id = %s AND ui.interaction_type = 'saved'
+                            """, (user['user_id'],))
+                            saved_posts = cursor.fetchall()
+                        else:
+                            cursor.execute("""
+                                SELECT p.* FROM posts p 
+                                JOIN user_interactions ui ON p.post_id = ui.post_id 
+                                WHERE ui.user_id = ? AND ui.interaction_type = 'saved'
+                            """, (user['user_id'],))
+                            saved_posts = [dict(row) for row in cursor.fetchall()]
+                        if not saved_posts:
+                            st.caption("No saved posts or reels yet.")
+                        for sp in saved_posts:
+                            st.markdown(f"**{sp.get('caption', 'Saved Item')}** <span style='font-size: 0.7rem; color: gray;'>({sp.get('created_at', '')})</span>", unsafe_allow_html=True)
+                            if sp.get('media_url'):
+                                st.image(sp['media_url'], width=150)
 
-                            st.write("### ❤️ Liked Reels & Posts")
-                            if db_type == "mysql":
-                                cursor.execute("""
-                                    SELECT p.* FROM posts p 
-                                    JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                    WHERE ui.user_id = %s AND ui.interaction_type = 'liked'
-                                """, (user['user_id'],))
-                                liked_posts = cursor.fetchall()
-                            else:
-                                cursor.execute("""
-                                    SELECT p.* FROM posts p 
-                                    JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                    WHERE ui.user_id = ? AND ui.interaction_type = 'liked'
-                                """, (user['user_id'],))
-                                liked_posts = [dict(row) for row in cursor.fetchall()]
+                        st.write("### ❤️ Liked Reels & Posts")
+                        if db_type == "mysql":
+                            cursor.execute("""
+                                SELECT p.* FROM posts p 
+                                JOIN user_interactions ui ON p.post_id = ui.post_id 
+                                WHERE ui.user_id = %s AND ui.interaction_type = 'liked'
+                            """, (user['user_id'],))
+                            liked_posts = cursor.fetchall()
+                        else:
+                            cursor.execute("""
+                                SELECT p.* FROM posts p 
+                                JOIN user_interactions ui ON p.post_id = ui.post_id 
+                                WHERE ui.user_id = ? AND ui.interaction_type = 'liked'
+                            """, (user['user_id'],))
+                            liked_posts = [dict(row) for row in cursor.fetchall()]
 
-                            if not liked_posts:
-                                st.caption("No liked posts or reels yet.")
-                            for lp in liked_posts:
-                                st.markdown(f"**{lp.get('caption', 'Liked Item')}** <span style='font-size: 0.7rem; color: gray;'>({lp.get('created_at', '')})</span>", unsafe_allow_html=True)
-                                if lp.get('media_url'):
-                                    st.image(lp['media_url'], width=150)
+                        if not liked_posts:
+                            st.caption("No liked posts or reels yet.")
+                        for lp in liked_posts:
+                            st.markdown(f"**{lp.get('caption', 'Liked Item')}** <span style='font-size: 0.7rem; color: gray;'>({lp.get('created_at', '')})</span>", unsafe_allow_html=True)
+                            if lp.get('media_url'):
+                                st.image(lp['media_url'], width=150)
 
-                            if st.button("Log Out", key="settings_logout_btn"):
-                                st.session_state.user = None
-                                st.session_state.viewing_profile_id = None
-                                st.rerun()
+                        if st.button("Log Out", key="settings_logout_btn"):
+                            st.session_state.user = None
+                            st.session_state.viewing_profile_id = None
+                            st.rerun()
 
-                    st.write("### Posts")
-                    if db_type == "mysql":
-                        cursor.execute("SELECT * FROM posts WHERE user_id = %s ORDER BY created_at DESC", (profile_user['user_id'],))
-                        user_posts = cursor.fetchall()
-                    else:
-                        cursor.execute("SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC", (profile_user['user_id'],))
-                        user_posts = [dict(row) for row in cursor.fetchall()]
+                st.write("### Posts")
+                if db_type == "mysql":
+                    cursor.execute("SELECT * FROM posts WHERE user_id = %s ORDER BY created_at DESC", (profile_user['user_id'],))
+                    user_posts = cursor.fetchall()
+                else:
+                    cursor.execute("SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC", (profile_user['user_id'],))
+                    user_posts = [dict(row) for row in cursor.fetchall()]
 
-                    if not user_posts:
-                        st.caption("No posts yet.")
-                    else:
-                        for up in user_posts:
-                            post_date_time = up.get('created_at', '')
-                            st.markdown(f"<span style='font-size: 0.75rem; color: gray;'>📅 {post_date_time}</span>", unsafe_allow_html=True)
-                            if up['caption']:
-                                st.write(up['caption'])
-                            if up['media_url']:
-                                st.image(up['media_url'], width=250)
-                            st.divider()
-            finally:
-                conn.close()
+                if not user_posts:
+                    st.caption("No posts yet.")
+                else:
+                    for up in user_posts:
+                        post_date_time = up.get('created_at', '')
+                        st.markdown(f"<span style='font-size: 0.75rem; color: gray;'>📅 {post_date_time}</span>", unsafe_allow_html=True)
+                        if up['caption']:
+                            st.write(up['caption'])
+                        if up['media_url']:
+                            st.image(up['media_url'], width=250)
+                        st.divider()
+        finally:
+            conn.close()
 
 render_footer()
 #################################################################################################################################
