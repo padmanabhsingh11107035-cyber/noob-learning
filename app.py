@@ -26,6 +26,7 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
         s_birth = sanitize_input(new_birth_date)
         s_age = int(new_age)
         
+        # NOTE: If your database column is named something else (like full_name), change 'name' below to match it.
         if db_type == "mysql":
             query = """
                 UPDATE users 
