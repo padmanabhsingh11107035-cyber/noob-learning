@@ -1,33 +1,20 @@
-# Cache buster: 1
 import streamlit as st
-import mysql.connector
+import sqlite3
 import datetime
 import base64
-import zoneinfo
-import logging
-import sys
-import re
-import pymysql
-import time
 
 def get_db_connection():
-    """Connects directly to your Aiven MySQL database with SSL enabled."""
+    """Connects to a local SQLite database, creating it automatically if it doesn't exist."""
     try:
-        conn = mysql.connector.connect(
-            host="mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
-            port=21354,
-            user="avnadmin",
-            password="AVNS_iN1XY9WAsRF1UWVhM6k",
-            database="defaultdb",
-            ssl_disabled=False
-        )
-        return "mysql", conn
+        conn = sqlite3.connect('database.db', check_same_thread=False)
+        conn.row_factory = sqlite3.Row  # Enables column access by name
+        return "sqlite", conn
     except Exception as e:
         st.error(f"Database connection error: {e}")
         return None, None
 
 def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
-    """Ensures profile columns exist in the database, then updates them successfully."""
+    """Ensures profile columns exist in the SQLite database, then updates them successfully."""
     db_type, conn = get_db_connection()
     if not conn:
         st.error("Database connection failed.")
@@ -36,49 +23,51 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
     try:
         cursor = conn.cursor()
         
-        # Automatically create missing columns in the users table so updates never fail
-        if db_type == "mysql":
-            cursor.execute("SHOW COLUMNS FROM users")
-            existing_cols = [row[0] for row in cursor.fetchall()]
+        # Ensure the users table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                name TEXT,
+                bio TEXT,
+                age INTEGER,
+                gender TEXT,
+                birth_date TEXT,
+                profile_pic BLOB
+            )
+        """)
+        
+        # Check existing columns to avoid missing column errors
+        cursor.execute("PRAGMA table_info(users)")
+        existing_cols = [row[1] for row in cursor.fetchall()]
+        
+        if 'name' not in existing_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN name TEXT")
+        if 'bio' not in existing_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
+        if 'age' not in existing_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN age INTEGER")
+        if 'gender' not in existing_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
+        if 'birth_date' not in existing_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
+        if 'profile_pic' not in existing_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN profile_pic BLOB")
             
-            if 'name' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN name VARCHAR(255)")
-            if 'bio' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
-            if 'age' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN age INT")
-            if 'gender' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN gender VARCHAR(50)")
-            if 'birth_date' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN birth_date VARCHAR(50)")
-                
-            query = """
-                UPDATE users 
-                SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s 
-                WHERE user_id = %s
+        # Update user profile query
+        query = """
+            UPDATE users 
+            SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
+            WHERE user_id = ?
+        """
+        cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
+        
+        # If user didn't exist yet, insert them
+        if cursor.rowcount == 0:
+            insert_query = """
+                INSERT INTO users (user_id, name, bio, age, gender, birth_date)
+                VALUES (?, ?, ?, ?, ?, ?)
             """
-            cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
-        else:
-            cursor.execute("PRAGMA table_info(users)")
-            existing_cols = [row[1] for row in cursor.fetchall()]
-            
-            if 'name' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN name TEXT")
-            if 'bio' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
-            if 'age' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN age INTEGER")
-            if 'gender' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
-            if 'birth_date' not in existing_cols:
-                cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
-                
-            query = """
-                UPDATE users 
-                SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
-                WHERE user_id = ?
-            """
-            cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
+            cursor.execute(insert_query, (user_id, new_name, new_bio, int(new_age), new_gender, new_birth_date))
             
         conn.commit()
         return True
@@ -88,9 +77,9 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
     finally:
         conn.close()
 
-# Example mock session states for context completion if not already present
+# Session state setup
 if 'user' not in st.session_state:
-    st.session_state.user = {'user_id': 1, 'name': 'SARAAN ROBOTICS', 'bio': 'Welcome to NOOB LEARNING!'}
+    st.session_state.user = {'user_id': 1, 'name': 'Padmanabh', 'bio': 'Welcome to NOOB LEARNING!'}
 if 'viewing_profile_id' not in st.session_state:
     st.session_state.viewing_profile_id = 1
 
@@ -101,15 +90,11 @@ db_type, conn = get_db_connection()
 profile_user = None
 if conn:
     try:
-        if db_type == "mysql":
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM users WHERE user_id = %s", (profile_id,))
-            profile_user = cursor.fetchone()
-        else:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
-            row = cursor.fetchone()
-            profile_user = dict(row) if row else None
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
+        row = cursor.fetchone()
+        if row:
+            profile_user = dict(row)
     finally:
         conn.close()
 
@@ -133,10 +118,7 @@ if profile_user.get('user_id') == user.get('user_id'):
                     db_type, conn = get_db_connection()
                     if conn:
                         cursor = conn.cursor()
-                        if db_type == "mysql":
-                            cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
-                        else:
-                            cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
+                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
                         conn.commit()
                         conn.close()
                     st.success("Profile picture updated successfully! Refreshing...")
@@ -145,7 +127,7 @@ if profile_user.get('user_id') == user.get('user_id'):
                     st.error(f"Error updating profile picture: {img_err}")
 
         with st.form("edit_profile_form"):
-            current_name_val = profile_user.get('name') or profile_user.get('full_name') or user.get('name', '') or ''
+            current_name_val = profile_user.get('name') or user.get('name', '') or ''
             new_name = st.text_input("Name", value=current_name_val, key="edit_name_input")
             new_bio = st.text_area("Bio", value=profile_user.get('bio', '') or user.get('bio', '') or '', key="edit_bio_input")
             
