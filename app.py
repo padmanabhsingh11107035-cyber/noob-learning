@@ -74,6 +74,29 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
         conn.close()
 ########################################################################################################################
 # FORM WRAPPER WITH CORRECT ALIGNED INDENTATION
+if profile_user['user_id'] == user['user_id']:
+                    with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
+                        st.write("### Edit Profile Details")
+                        
+                        st.markdown("#### Update Profile Picture")
+                        uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
+
+                        if uploaded_pic is not None:
+                            st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
+                            if st.button("Save Profile Picture", key="save_profile_pic_btn"):
+                                try:
+                                    pic_bytes = uploaded_pic.getvalue()
+                                    if db_type == "mysql":
+                                        cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
+                                    else:
+                                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
+                                    conn.commit()
+                                    st.success("Profile picture updated successfully! Refreshing...")
+                                    st.rerun()
+                                except Exception as img_err:
+                                    st.error(f"Error updating profile picture: {img_err}")
+
+                        # Make sure this line lines up cleanly with the code above it:
                         with st.form("edit_profile_form"):
                             current_name_val = profile_user.get('name') or profile_user.get('full_name') or user.get('name', '') or ''
                             new_name = st.text_input("Name", value=current_name_val, key="edit_name_input")
