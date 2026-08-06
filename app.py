@@ -1,2383 +1,961 @@
 import streamlit as st
 import sqlite3
-import datetime
-import logging
-import sys
+import base64
+import io
+from PIL import Image
+from datetime import datetime
+import time
 
-# ==============================================================================
-# 0. LOGGING AND SYSTEM SETUP
-# ==============================================================================
-logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-logger = logging.getLogger("NoobLearningApp")
-
-# --- PAGE CONFIGURATION ---
+# -----------------------------------------------------------------------------
+# PAGE CONFIGURATION
+# -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Noob Learning Hub",
-    page_icon="🎓",
-    layout="centered",
+    page_title="Noob Learning | Powered by Saraah Robotics",
+    page_icon="⚡",
+    layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# --- DATABASE SETUP & FIXES ---
+# -----------------------------------------------------------------------------
+# DATABASE INITIALIZATION & CONNECTIVITY
+# -----------------------------------------------------------------------------
+DB_PATH = "noob_learning.db"
+
 def get_db_connection():
-    """Connects to SQLite and automatically ensures the users and messages tables exist."""
-    try:
-        conn = sqlite3.connect('database.db', check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        
-        cursor = conn.cursor()
-        # Users Table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE,
-                password TEXT,
-                name TEXT,
-                bio TEXT,
-                age INTEGER,
-                gender TEXT,
-                birth_date TEXT,
-                profile_pic BLOB
-            )
-        """)
-        
-        # Messages Table for Live Chat
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sender TEXT,
-                receiver TEXT,
-                message TEXT,
-                timestamp TEXT
-            )
-        """)
-        conn.commit()
-        
-        # Automatically add missing columns if any
-        cursor.execute("PRAGMA table_info(users)")
-        existing_cols = [row[1] for row in cursor.fetchall()]
-        col_definitions = {
-            'username': 'TEXT UNIQUE',
-            'password': 'TEXT',
-            'name': 'TEXT',
-            'bio': 'TEXT',
-            'age': 'INTEGER',
-            'gender': 'TEXT',
-            'birth_date': 'TEXT',
-            'profile_pic': 'BLOB'
-        }
-        for col, col_type in col_definitions.items():
-            if col not in existing_cols:
-                try:
-                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
-                    conn.commit()
-                except:
-                    pass
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-        return "sqlite", conn
-    except Exception as e:
-        st.error(f"Database connection error: {e}")
-        return None, None
-
-def get_current_ist_time():
-    ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-    return datetime.datetime.now(ist_offset)
-
-def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
-    db_type, conn = get_db_connection()
-    if not conn:
-        st.error("Database connection failed.")
-        return False
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
     
-    try:
-        cursor = conn.cursor()
-        query = """
-            UPDATE users 
-            SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
-            WHERE user_id = ?
-        """
-        cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
-        conn.commit()
-        return True
-    except Exception as e:
-        st.error(f"SQL Update Failed: {e}")
-        return False
-    finally:
-        conn.close()
-
-# --- SESSION STATE INITIALIZATION ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'user' not in st.session_state:
-    st.session_state.user = None
-if 'auth_mode' not in st.session_state:
-    st.session_state.auth_mode = "login"
-if 'nav_option' not in st.session_state:
-    st.session_state.nav_option = "Home"
-if 'viewing_user' not in st.session_state:
-    st.session_state.viewing_user = None
-if 'active_chat_user' not in st.session_state:
-    st.session_state.active_chat_user = None
-
-# --- CUSTOM CSS STYLING ---
-def inject_custom_css():
-    custom_css = """
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Billabong&family=Inter:wght@400;500;600&display=swap');
-
-        .stApp {
-            background-color: #fafafa;
-        }
-
-        header {visibility: hidden;}
-
-        .insta-brand-title {
-            font-family: 'Billabong', cursive, sans-serif;
-            font-size: 3.2rem;
-            text-align: center;
-            color: #262626;
-            margin-bottom: 0.5rem;
-            font-weight: normal;
-        }
-
-        div.stFormSubmitButton > button {
-            background-color: #28a745 !important;
-            color: white !important;
-            border: none !important;
-            border-radius: 6px;
-        }
-        div.stFormSubmitButton > button:hover {
-            background-color: #218838 !important;
-            color: white !important;
-        }
-        .chat-bubble-user {
-            background: #0095f6;
-            color: white;
-            padding: 10px 14px;
-            border-radius: 15px 15px 2px 15px;
-            margin: 5px 0;
-            max-width: 70%;
-            float: right;
-            clear: both;
-        }
-        .chat-bubble-peer {
-            background: #efefef;
-            color: black;
-            padding: 10px 14px;
-            border-radius: 15px 15px 15px 2px;
-            margin: 5px 0;
-            max-width: 70%;
-            float: left;
-            clear: both;
-        }
-
-        /* Footer Branding */
-        .app-footer {
-            text-align: center;
-            color: #8e8e8e;
-            font-size: 0.75rem;
-            font-weight: 500;
-            letter-spacing: 1px;
-            margin-top: 3rem;
-            padding-bottom: 1rem;
-            text-transform: uppercase;
-        }
-    </style>
-    """
-    st.markdown(custom_css, unsafe_allow_html=True)
-
-inject_custom_css()
-
-# --- AUTHENTICATION SCREEN ---
-if not st.session_state.logged_in:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("""
-            <div style='text-align: center; margin-top: 40px; margin-bottom: 25px;'>
-                <h1 class='insta-brand-title'>
-                    Noob Learning
-                </h1>
-            </div>
-        """, unsafe_allow_html=True)
+    # Users table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        user_id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        bio TEXT,
+        age INTEGER,
+        gender TEXT,
+        birth_date TEXT,
+        account_type TEXT DEFAULT 'Public',
+        profile_pic BLOB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
+    # Reels & Posts table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS reels_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        caption TEXT,
+        media_data BLOB,
+        media_type TEXT,
+        media_url TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        likes INTEGER DEFAULT 0
+    )
+    """)
+    
+    # Messages table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender TEXT NOT NULL,
+        receiver TEXT NOT NULL,
+        message TEXT NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
+    # Likes table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS likes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        post_id INTEGER NOT NULL,
+        UNIQUE(username, post_id)
+    )
+    """)
+    
+    # Seed default sample users if empty
+    cursor.execute("SELECT COUNT(*) as count FROM users")
+    if cursor.fetchone()['count'] == 0:
+        default_users = [
+            ("princehumperdinck87", "princehumperdinck87", "password123", "Prince Humperdinck", "Exploring AI & Robotics 🤖 | Founder Noob Learning", 21, "Male", "15/08/2003", "Public", None),
+            ("saraah_robotics", "saraah_robotics", "password123", "Saraah Robotics", "Official Saraah Robotics Account 🚀 Autonomous Systems & AI", 22, "Prefer not to say", "01/01/2002", "Public", None),
+            ("alex_dev", "alex_dev", "password123", "Alex Rivera", "Building cool Python & AI web apps 💻", 19, "Other", "12/04/2005", "Public", None),
+            ("noob_coder", "noob_coder", "password123", "Noob Coder", "Learning Python step by step 🐍", 18, "Female", "05/11/2006", "Public", None),
+        ]
+        cursor.executemany("""
+        INSERT INTO users (user_id, username, password, full_name, bio, age, gender, birth_date, account_type, profile_pic)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, default_users)
         
-        if st.session_state.auth_mode == "login":
-            with st.form("insta_login_form"):
-                username = st.text_input("Username Input", placeholder="Username or mobile number", label_visibility="collapsed")
-                password = st.text_input("Password Input", placeholder="Password", type="password", label_visibility="collapsed")
-                login_submitted = st.form_submit_button("Log in", use_container_width=True)
-                
-                if login_submitted:
-                    db_type, conn = get_db_connection()
-                    if conn:
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username.strip(), password))
-                        user_row = cursor.fetchone()
-                        conn.close()
-                        
-                        if user_row:
-                            st.session_state.logged_in = True
-                            st.session_state.user = dict(user_row)
-                            st.rerun()
-                        else:
-                            st.error("Incorrect username or password.")
-            
-            if st.button("Create new account", use_container_width=True, key="create_acc_btn"):
-                st.session_state.auth_mode = "signup"
-                st.rerun()
-        else:
-            with st.form("insta_signup_form"):
-                st.markdown("<h4 style='text-align: center; color: #666;'>Sign up to see posts from your friends.</h4>", unsafe_allow_html=True)
-                new_user = st.text_input("New Username Input", placeholder="Mobile Number, username or email", label_visibility="collapsed")
-                new_pass = st.text_input("New Password Input", placeholder="Password", type="password", label_visibility="collapsed")
-                signup_submitted = st.form_submit_button("Sign up", use_container_width=True)
-                
-                if signup_submitted:
-                    if new_user and new_pass:
-                        db_type, conn = get_db_connection()
-                        if conn:
-                            try:
-                                cursor = conn.cursor()
-                                cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (?, ?, ?, ?)", 
-                                               (new_user.strip(), new_pass, new_user.strip(), "Noob Learning Enthusiast"))
-                                conn.commit()
-                                conn.close()
-                                st.success("Account created successfully! Please log in.")
-                                st.session_state.auth_mode = "login"
-                                st.rerun()
-                            except sqlite3.IntegrityError:
-                                st.error("Username already exists.")
-                                conn.close()
-                    else:
-                        st.warning("Please fill in all fields.")
-                        
-            if st.button("Back to Login", use_container_width=True, key="back_login_btn"):
-                st.session_state.auth_mode = "login"
-                st.rerun()
+        # Seed sample feed posts & reels
+        sample_posts = [
+            ("saraah_robotics", "🚀 Exciting milestone! Our new robotic arm prototype passed all AI visual testing! What should we build next? #SaraahRobotics #AI", None, "image", "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=800&q=80", 12),
+            ("princehumperdinck87", "Building the ultimate social learning platform for Gen Z developers with Python & Streamlit! 🔥 What do you think of Noob Learning?", None, "image", "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&q=80", 28),
+            ("alex_dev", "Late night debugging session paid off! 💡 Never give up on your code.", None, "image", "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&q=80", 9),
+        ]
+        cursor.executemany("""
+        INSERT INTO reels_posts (username, caption, media_data, media_type, media_url, likes)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """, sample_posts)
+        
+        # Seed sample chat history matching Image 2
+        sample_chats = [
+            ("princehumperdinck87", "saraah_robotics", "Hello, I heard you're pretty and you must marry me. NOW.", "2026-08-06 17:13:00"),
+            ("saraah_robotics", "princehumperdinck87", "I refuse your request.", "2026-08-06 17:13:15"),
+            ("princehumperdinck87", "saraah_robotics", "You must or you die a painful death.", "2026-08-06 17:13:30"),
+            ("saraah_robotics", "princehumperdinck87", "Fine, but I will never love you.", "2026-08-06 17:13:45"),
+            ("princehumperdinck87", "saraah_robotics", "Deal.", "2026-08-06 17:14:00"),
+        ]
+        cursor.executemany("""
+        INSERT INTO messages (sender, receiver, message, timestamp)
+        VALUES (?, ?, ?, ?)
+        """, sample_chats)
+        
+    conn.commit()
+    conn.close()
 
-        st.markdown("<p class='app-footer'>Saraah Robotics</p>", unsafe_allow_html=True)
-    st.stop()
+# Initialize DB on script load
+init_db()
 
-# --- MAIN APP LAYOUT & NAVIGATION ---
-user = st.session_state.user
+# -----------------------------------------------------------------------------
+# HELPER FUNCTIONS
+# -----------------------------------------------------------------------------
+def get_user(username):
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    return user
 
+def authenticate_user(username_or_id, password):
+    conn = get_db_connection()
+    user = conn.execute(
+        "SELECT * FROM users WHERE (username = ? OR user_id = ?) AND password = ?",
+        (username_or_id, username_or_id, password)
+    ).fetchone()
+    conn.close()
+    return user
+
+def create_user_account(user_id, username, password, full_name, bio, age, gender, birth_date, account_type, profile_pic_bytes):
+    conn = get_db_connection()
+    try:
+        conn.execute("""
+        INSERT INTO users (user_id, username, password, full_name, bio, age, gender, birth_date, account_type, profile_pic)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, username, password, full_name, bio, age, gender, birth_date, account_type, profile_pic_bytes))
+        conn.commit()
+        conn.close()
+        return True, "Account created successfully!"
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        if "UNIQUE" in str(e).upper():
+            return False, "Username or User ID already exists. Please choose another."
+        return False, f"Error creating account: {e}"
+
+def get_image_b64(blob):
+    if not blob:
+        return None
+    try:
+        return base64.b64encode(blob).decode("utf-8")
+    except Exception:
+        return None
+
+def render_avatar(username, profile_pic_blob=None, size=40):
+    b64 = get_image_b64(profile_pic_blob)
+    if b64:
+        return f'<img src="data:image/jpeg;base64,{b64}" style="width:{size}px; height:{size}px; border-radius:50%; object-fit:cover; display:inline-block; vertical-align:middle;" />'
+    else:
+        initial = username[0].upper() if username else 'U'
+        colors = ['#3b82f6', '#ec4899', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444']
+        color = colors[len(username) % len(colors)] if username else '#3b82f6'
+        return f'<div style="width:{size}px; height:{size}px; border-radius:50%; background:{color}; color:white; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:{int(size*0.45)}px; vertical-align:middle; text-transform:uppercase;">{initial}</div>'
+
+# -----------------------------------------------------------------------------
+# GLOBAL STYLING (SLEEK INTERFACE DESIGN THEME)
+# -----------------------------------------------------------------------------
 st.markdown("""
-    <div style='text-align: center;'>
-        <h2 style='font-family: "Brush Script MT", cursive, sans-serif; font-size: 40px; color: #000000;'>Noob Learning Hub</h2>
-    </div>
+<style>
+    /* Hide Streamlit default headers & footers */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Main layout font & background - Sleek Dark Aesthetic */
+    .stApp {
+        background-color: #050505 !important;
+        color: #ffffff !important;
+        font-family: 'Helvetica Neue', Arial, -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+    
+    /* Sleek typography defaults */
+    h1, h2, h3, h4, h5, h6, p, label, span, div {
+        color: #ffffff;
+    }
+
+    /* Instagram Gradient Helper */
+    .ig-gradient-text {
+        background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    
+    /* Custom Login Card (Sleek Glassmorphic Interface) */
+    .login-container {
+        max-width: 420px;
+        margin: 50px auto 20px auto;
+        text-align: center;
+    }
+    .login-title {
+        font-size: 42px;
+        font-weight: 800;
+        color: #ffffff;
+        margin-bottom: 24px;
+        letter-spacing: -1px;
+    }
+    .login-box {
+        background: rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 24px;
+        padding: 32px 24px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+    .login-footer-text {
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 2.5px;
+        margin-top: 36px;
+        text-align: center;
+    }
+    
+    /* Primary Action Buttons (Green or Instagram Accent) */
+    div.stButton > button[kind="primary"], .green-btn button {
+        background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+        padding: 10px 18px !important;
+        width: 100% !important;
+        box-shadow: 0 4px 14px rgba(34, 197, 94, 0.25) !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 20px rgba(34, 197, 94, 0.4) !important;
+    }
+    
+    /* Secondary Outline Button */
+    div.stButton > button[kind="secondary"] {
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        color: #ffffff !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        width: 100% !important;
+        transition: all 0.2s ease !important;
+    }
+    div.stButton > button[kind="secondary"]:hover {
+        border-color: rgba(255, 255, 255, 0.3) !important;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+    }
+
+    /* Sleek Input Fields */
+    div.stTextInput > div > div > input,
+    div.stTextArea > div > div > textarea,
+    div.stSelectbox > div > div {
+        border-radius: 12px !important;
+        background-color: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        padding: 12px 14px !important;
+        font-size: 14px !important;
+        color: #ffffff !important;
+    }
+    div.stTextInput > div > div > input:focus,
+    div.stTextArea > div > div > textarea:focus {
+        border-color: #22c55e !important;
+        box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3) !important;
+    }
+
+    /* Top Navigation Header */
+    .top-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(12px);
+        padding: 14px 28px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 24px;
+        border-radius: 0 0 20px 20px;
+    }
+    .brand-logo {
+        font-size: 24px;
+        font-weight: 800;
+        background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .brand-sub {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.5);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+    }
+
+    /* Chat Styling (Sleek Dark Theme - Image 2 Replica) */
+    .chat-header-bar {
+        display: flex;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        padding: 14px 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px 16px 0 0;
+    }
+    .chat-user-title {
+        font-weight: 700;
+        font-size: 16px;
+        color: #ffffff;
+        margin-left: 12px;
+        line-height: 1.2;
+    }
+    .chat-active-status {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .active-dot {
+        width: 8px;
+        height: 8px;
+        background-color: #22c55e;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+    }
+
+    /* Chat Bubble Received (Left) - Glass dark bubble */
+    .chat-row-left {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 16px;
+        justify-content: flex-start;
+    }
+    .bubble-received {
+        background-color: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 20px;
+        border-top-left-radius: 4px;
+        padding: 12px 18px;
+        max-width: 75%;
+        color: #ffffff;
+        font-size: 14px;
+        line-height: 1.5;
+        backdrop-filter: blur(8px);
+    }
+
+    /* Chat Bubble Sent (Right) - Sleek Blue Accent */
+    .chat-row-right {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        margin-bottom: 16px;
+        justify-content: flex-end;
+    }
+    .bubble-sent {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        border-radius: 20px;
+        border-top-right-radius: 4px;
+        padding: 12px 18px;
+        max-width: 75%;
+        color: #ffffff;
+        font-size: 14px;
+        line-height: 1.5;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    .seen-indicator {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.4);
+        text-align: right;
+        margin-top: 4px;
+    }
+
+    /* Post / Reel Cards - Glassmorphism Card Style */
+    .feed-card {
+        background: rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 20px;
+        margin-bottom: 24px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+    .card-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .card-username {
+        font-weight: 700;
+        font-size: 15px;
+        color: #ffffff;
+    }
+    .card-time {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+        width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+        background: rgba(0,0,0,0.2);
+    }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.15);
+        border-radius: 3px;
+    }
+</style>
 """, unsafe_allow_html=True)
 
-# Top Bar actions (Log Out button)
-col_logout, col_spacer = st.columns([1, 4])
-with col_logout:
-    if st.button("Log Out", key="top_logout_btn"):
-        st.session_state.logged_in = False
-        st.session_state.user = None
-        st.rerun()
+# -----------------------------------------------------------------------------
+# SESSION STATE INITIALIZATION
+# -----------------------------------------------------------------------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = None
+if "auth_mode" not in st.session_state:
+    st.session_state.auth_mode = "login"  # 'login' or 'signup'
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "feed"  # 'feed', 'reels', 'chat', 'profile'
+if "active_chat_user" not in st.session_state:
+    st.session_state.active_chat_user = None
+if "signup_msg" not in st.session_state:
+    st.session_state.signup_msg = None
 
-# Navigation Tabs Bar (Rendered ONCE cleanly without duplication)
-nav_cols = st.columns(5)
-with nav_cols[0]:
-    if st.button("🏠 Home", use_container_width=True, key="nav_home_btn"):
-        st.session_state.nav_option = "Home"
-        st.session_state.viewing_user = None
-        st.session_state.active_chat_user = None
-        st.rerun()
-with nav_cols[1]:
-    if st.button("🔍 Search", use_container_width=True, key="nav_search_btn"):
-        st.session_state.nav_option = "Search"
-        st.session_state.viewing_user = None
-        st.session_state.active_chat_user = None
-        st.rerun()
-with nav_cols[2]:
-    if st.button("➕ Post", use_container_width=True, key="nav_post_btn"):
-        st.session_state.nav_option = "Post"
-        st.session_state.viewing_user = None
-        st.session_state.active_chat_user = None
-        st.rerun()
-with nav_cols[3]:
-    if st.button("💬 Chat", use_container_width=True, key="nav_chat_btn"):
-        st.session_state.nav_option = "Chat"
-        st.session_state.viewing_user = None
-        st.rerun()
-with nav_cols[4]:
-    if st.button("👤 Profile", use_container_width=True, key="nav_profile_btn"):
-        st.session_state.nav_option = "Profile"
-        st.session_state.viewing_user = user['username']
-        st.session_state.active_chat_user = None
-        st.rerun()
-
-st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-
-# --- ROUTING LOGIC ---
-current_tab = st.session_state.nav_option
-
-# 1. HOME TAB
-if current_tab == "Home":
-    st.write("### Feed")
-    st.info("Welcome to the Noob Learning main feed! Share your progress or check out your peers.")
-
-# 2. SEARCH TAB
-elif current_tab == "Search":
-    st.write("### Search Users")
-    search_query = st.text_input("Search by username or name", placeholder="Type username here...", key="search_box_input")
+# =============================================================================
+# AUTHENTICATION FLOW (LOGIN & SIGN UP)
+# =============================================================================
+if not st.session_state.logged_in:
     
-    db_type, conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        if search_query:
-            cursor.execute("SELECT * FROM users WHERE username LIKE ? OR name LIKE ?", (f"%{search_query}%", f"%{search_query}%"))
-        else:
-            cursor.execute("SELECT * FROM users")
-        users_list = cursor.fetchall()
-        conn.close()
-
-        st.write(f"Found {len(users_list)} user(s):")
-        for u_row in users_list:
-            u_dict = dict(u_row)
-            col_u1, col_u2 = st.columns([3, 1])
-            with col_u1:
-                st.markdown(f"**@{u_dict['username']}** — *{u_dict['name'] or 'No Name'}*")
-            with col_u2:
-                if st.button("View Profile", key=f"view_profile_btn_{u_dict['user_id']}"):
-                    st.session_state.viewing_user = u_dict['username']
-                    st.session_state.nav_option = "Profile"
-                    st.rerun()
-
-# 3. POST TAB
-elif current_tab == "Post":
-    st.write("### Create a New Post")
-    uploaded_file = st.file_uploader("Choose an image or video", type=["jpg", "jpeg", "png", "mp4"], key="post_file_uploader")
-    caption = st.text_area("Write a caption...", key="post_caption_area")
-    if st.button("Share Post", key="share_post_btn"):
-        st.success("Post shared successfully!")
-
-# 4. CHAT TAB (Strictly scoped layout ensuring st.chat_input stays within active chat view)
-elif current_tab == "Chat":
-    db_type, conn = get_db_connection()
-    all_users = []
-    if conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username != ?", (user['username'],))
-        all_users = cursor.fetchall()
-        conn.close()
-
-    if st.session_state.active_chat_user is None:
-        st.write("### Messages")
-        st.write("Select a user to start chatting:")
-        if not all_users:
-            st.info("No other users found yet.")
-        for peer in all_users:
-            peer_dict = dict(peer)
-            col_c1, col_c2 = st.columns([3, 1])
-            with col_c1:
-                st.markdown(f"💬 **{peer_dict['username']}** ({peer_dict['name'] or 'User'})")
-            with col_c2:
-                if st.button("Chat", key=f"start_chat_btn_{peer_dict['user_id']}"):
-                    st.session_state.active_chat_user = peer_dict['username']
-                    st.rerun()
-    else:
-        peer_name = st.session_state.active_chat_user
-        if st.button("⬅ Back to Inbox", key="back_inbox_btn"):
-            st.session_state.active_chat_user = None
-            st.rerun()
-
-        st.markdown(f"### Chatting with: **{peer_name}**")
+    # -------------------------------------------------------------------------
+    # LOGIN VIEW (Replicating Image 1)
+    # -------------------------------------------------------------------------
+    if st.session_state.auth_mode == "login":
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">Noob Learning</div>', unsafe_allow_html=True)
         
-        # Chat history container display
-        chat_container = st.container(height=380)
-        
-        db_type, conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM messages 
-                WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
-                ORDER BY id ASC
-            """, (user['username'], peer_name, peer_name, user['username']))
-            messages = cursor.fetchall()
-            conn.close()
-
-            with chat_container:
-                for msg in messages:
-                    if msg['sender'] == user['username']:
-                        st.markdown(f"<div class='chat-bubble-user'>{msg['message']}</div>", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"<div class='chat-bubble-peer'>{msg['message']}</div>", unsafe_allow_html=True)
-
-        # Real-time message submission via st.chat_input rendered ONLY inside the active chat view
-        user_msg = st.chat_input(f"Reply to {peer_name}...", key="live_chat_input_box")
-        if user_msg:
-            db_type, conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute("INSERT INTO messages (sender, receiver, message, timestamp) VALUES (?, ?, ?, ?)",
-                               (user['username'], peer_name, user_msg, str(get_current_ist_time())))
-                conn.commit()
-                conn.close()
-                st.rerun()
-
-# 5. PROFILE TAB
-elif current_tab == "Profile":
-    target_username = st.session_state.viewing_user or user['username']
-    
-    db_type, conn = get_db_connection()
-    profile_data = None
-    if conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = ?", (target_username,))
-        row = cursor.fetchone()
-        if row:
-            profile_data = dict(row)
-        conn.close()
-
-    if profile_data:
-        is_own_profile = (profile_data['username'] == user['username'])
-        
-        col_img, col_stats = st.columns([1, 2])
-        with col_img:
-            if profile_data.get('profile_pic'):
-                st.image(profile_data['profile_pic'], width=110)
-            else:
-                st.markdown("👤", unsafe_allow_html=True)
-                
-        with col_stats:
-            st.markdown(f"### @{profile_data['username']}")
-            stat_c1, stat_c2, stat_c3 = st.columns(3)
-            with stat_c1:
-                st.markdown("**0**\nPosts")
-            with stat_c2:
-                st.markdown("**12**\nFollowers")
-            with stat_c3:
-                st.markdown("**15**\nFollowing")
-
-        st.markdown(f"**{profile_data.get('name') or profile_data['username']}**")
-        st.markdown(f"{profile_data.get('bio') or 'No bio added yet.'}")
-        
-        if is_own_profile:
-            with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
-                st.write("### Edit Profile Details")
-                
-                st.markdown("#### Update Profile Picture")
-                uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader_tab")
-
-                if uploaded_pic is not None:
-                    st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
-                    if st.button("Save Profile Picture", key="save_profile_pic_btn_action"):
-                        try:
-                            pic_bytes = uploaded_pic.getvalue()
-                            db_type, conn = get_db_connection()
-                            if conn:
-                                cursor = conn.cursor()
-                                cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
-                                conn.commit()
-                                conn.close()
-                            st.success("Profile picture updated successfully! Refreshing...")
-                            st.rerun()
-                        except Exception as img_err:
-                            st.error(f"Error updating profile picture: {img_err}")
-
-                with st.form("edit_profile_form"):
-                    current_name_val = profile_data.get('name') or user.get('username', '') or ''
-                    new_name = st.text_input("Name", value=current_name_val, key="edit_name_input")
-                    new_bio = st.text_area("Bio", value=profile_data.get('bio', '') or '', key="edit_bio_input")
-                    
-                    default_age = profile_data.get('age') or 18
-                    try:
-                        default_age = int(default_age)
-                    except:
-                        default_age = 18
-                    new_age = st.number_input("Age", min_value=1, max_value=120, value=default_age, key="edit_age_input")
-                    
-                    gender_options = ["Male", "Female", "Other", "Prefer not to say"]
-                    current_gender = profile_data.get('gender')
-                    gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
-                    new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
-                    
-                    current_birth = profile_data.get('birth_date') or ''
-                    clean_birth = "".join(filter(str.isdigit, str(current_birth)))
-                    if len(clean_birth) == 8:
-                        formatted_default = f"{clean_birth[:2]}/{clean_birth[2:4]}/{clean_birth[4:]}"
-                    else:
-                        formatted_default = current_birth if current_birth else "DD/MM/YYYY"
-
-                    new_birth_date = st.text_input(
-                        "Birth Date (DD/MM/YYYY)", 
-                        value=formatted_default, 
-                        placeholder="DD/MM/YYYY",
-                        key="edit_birthdate_input"
-                    )
-
-                    if st.form_submit_button("Update Profile"):
-                        success = safe_update_user_profile(
-                            user['user_id'], 
-                            new_name, 
-                            new_bio, 
-                            new_age, 
-                            new_gender, 
-                            new_birth_date
-                        )
-                        if success:
-                            user['name'] = new_name
-                            user['bio'] = new_bio
-                            user['age'] = new_age
-                            user['gender'] = new_gender
-                            user['birth_date'] = new_birth_date
-                            
-                            st.success("Profile updated successfully!")
-                            st.rerun()
-        else:
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                if st.button("Follow", use_container_width=True, key="profile_follow_btn_action"):
-                    st.success(f"You are now following @{profile_data['username']}!")
-            with btn_col2:
-                if st.button("Message", use_container_width=True, key="profile_message_btn_action"):
-                    st.session_state.active_chat_user = profile_data['username']
-                    st.session_state.nav_option = "Chat"
-                    st.rerun()
-
-        st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-        st.write("🖼️ **User Posts Grid**")
-        st.info("No posts uploaded by this user yet.")
-    else:
-        st.error("User not found.")
-
-st.markdown("<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
-
-# ==============================================================================
-# 2. DATABASE CONFIGURATION & FALLBACK (Local SQLite or Cloud MySQL)
-# ==============================================================================
-import sqlite3
-
-def get_db_connection():
-    """Attempts to connect to Cloud MySQL first; falls back to robust local SQLite if cloud host is unreachable."""
-    DB_CONFIG = {
-        "host": "mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
-        "port": 21354,
-        "user": "avnadmin",
-        "password": "AVNS_iN1XY9WAsRFlUWVhM6k",
-        "database": "defaultdb",
-        "connect_timeout": 3
-    }
-    try:
-        connection = mysql.connector.connect(**DB_CONFIG)
-        if connection.is_connected():
-            return ("mysql", connection)
-    except Exception as err:
-        logger.warning(f"Cloud MySQL unreachable ({err}). Falling back to local SQLite database for seamless execution.")
-    
-    # Fallback to local SQLite so the app never crashes on DNS/host resolution errors
-    sqlite_conn = sqlite3.connect("noob_learning.db", check_same_thread=False)
-    sqlite_conn.row_factory = sqlite3.Row
-    return ("sqlite", sqlite_conn)
-
-def setup_database_schema():
-    """Ensures all required tables exist across either database backend."""
-    db_type, conn = get_db_connection()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            if db_type == "mysql":
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        user_id INT AUTO_INCREMENT PRIMARY KEY,
-                        username VARCHAR(100) UNIQUE NOT NULL,
-                        password VARCHAR(255) NOT NULL,
-                        name VARCHAR(150),
-                        phone_number VARCHAR(30),
-                        email VARCHAR(150),
-                        gender VARCHAR(50),
-                        account_type VARCHAR(20) DEFAULT 'Public',
-                        bio VARCHAR(255) DEFAULT 'Welcome to NOOB LEARNING!',
-                        profile_pic LONGTEXT,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS posts (
-                        post_id INT AUTO_INCREMENT PRIMARY KEY,
-                        user_id INT NOT NULL,
-                        caption TEXT,
-                        media_url LONGTEXT,
-                        likes INT DEFAULT 0,
-                        shares INT DEFAULT 0,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS comments (
-                        comment_id INT AUTO_INCREMENT PRIMARY KEY,
-                        post_id INT NOT NULL,
-                        user_id INT NOT NULL,
-                        comment_text TEXT NOT NULL,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS follows (
-                        follow_id INT AUTO_INCREMENT PRIMARY KEY,
-                        follower_id INT NOT NULL,
-                        following_id INT NOT NULL,
-                        status VARCHAR(20) DEFAULT 'Accepted',
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS messages (
-                        message_id INT AUTO_INCREMENT PRIMARY KEY,
-                        sender_id INT NOT NULL,
-                        receiver_id INT NOT NULL,
-                        message_text TEXT,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS user_interactions (
-                        interaction_id INT AUTO_INCREMENT PRIMARY KEY,
-                        user_id INT NOT NULL,
-                        post_id INT NOT NULL,
-                        interaction_type VARCHAR(20) NOT NULL,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                conn.commit()
-            else:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT UNIQUE NOT NULL,
-                        password TEXT NOT NULL,
-                        name TEXT,
-                        phone_number TEXT,
-                        email TEXT,
-                        gender TEXT,
-                        account_type TEXT DEFAULT 'Public',
-                        bio TEXT DEFAULT 'Welcome to NOOB LEARNING!',
-                        profile_pic TEXT,
-                        created_at TEXT
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS posts (
-                        post_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        caption TEXT,
-                        media_url TEXT,
-                        likes INTEGER DEFAULT 0,
-                        shares INTEGER DEFAULT 0,
-                        created_at TEXT
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS comments (
-                        comment_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        post_id INTEGER NOT NULL,
-                        user_id INTEGER NOT NULL,
-                        comment_text TEXT NOT NULL,
-                        created_at TEXT
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS follows (
-                        follow_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        follower_id INTEGER NOT NULL,
-                        following_id INTEGER NOT NULL,
-                        status TEXT DEFAULT 'Accepted',
-                        created_at TEXT
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS messages (
-                        message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        sender_id INTEGER NOT NULL,
-                        receiver_id INTEGER NOT NULL,
-                        message_text TEXT,
-                        created_at TEXT
-                    );
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS user_interactions (
-                        interaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        post_id INTEGER NOT NULL,
-                        interaction_type TEXT NOT NULL,
-                        created_at TEXT
-                    );
-                """)
-                conn.commit()
-        except Exception as e:
-            logger.error(f"Schema setup error: {e}")
-        finally:
-            conn.close()
-
-try:
-    setup_database_schema()
-except Exception as e:
-    st.warning(f"Database sync skipped: {e}")
-
-# ==============================================================================
-# 3. SESSION STATE MANAGEMENT
-# ==============================================================================
-if "user" not in st.session_state:
-    st.session_state.user = None
-
-if "auth_page" not in st.session_state:
-    st.session_state.auth_page = "login"
-
-if "nav_tab" not in st.session_state:
-    st.session_state.nav_tab = "Home"
-
-if "viewing_profile_id" not in st.session_state:
-    st.session_state.viewing_profile_id = None
-
-# ==============================================================================
-# 4. UTILITY HELPERS
-# ==============================================================================
-def sanitize_input(text_str: str) -> str:
-    if not text_str:
-        return ""
-    return re.sub(r'<script.*?>.*?</script>', '', text_str, flags=re.DOTALL | re.IGNORECASE).strip()
-
-def format_to_ist(dt_object) -> str:
-    """Converts and formats timestamp objects into exact readable date and IST time."""
-    if not dt_object:
-        return ""
-    if isinstance(dt_object, datetime.datetime):
-        if dt_object.tzinfo is None:
-            dt_utc = dt_object.replace(tzinfo=datetime.timezone.utc)
-            dt_ist = dt_utc.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
-        else:
-            dt_ist = dt_object.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
-        return dt_ist.strftime("%B %d, %Y - %I:%M:%S %p")
-    return str(dt_object)
-
-def get_current_ist_time() -> str:
-    """Returns current exact IST timestamp string for database insertion."""
-    dt_utc = datetime.datetime.now(datetime.timezone.utc)
-    dt_ist = dt_utc.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
-    return dt_ist.strftime('%Y-%m-%d %H:%M:%S')
-
-def render_footer():
-    st.markdown('<div class="app-footer">Powered by Saraah Robotics</div>', unsafe_allow_html=True)
-
-# ==============================================================================
-# 5. AUTHENTICATION SCREENS
-# ==============================================================================
-if not st.session_state.user:
-    _, col_center, _ = st.columns([1, 1.2, 1])
-
-    with col_center:
-        st.markdown('<div class="insta-brand-title">Noob Learning</div>', unsafe_allow_html=True)
-
-        if st.session_state.auth_page == "login":
-            login_identifier = st.text_input("Phone number, username, or email", placeholder="Phone number, username, or email")
-            login_password = st.text_input("Password", type="password", placeholder="Password")
-
-            if st.button("Log In", use_container_width=True, type="primary"):
-                if login_identifier and login_password:
-                    db_type, conn = get_db_connection()
-                    if conn:
-                        try:
-                            if db_type == "mysql":
-                                cursor = conn.cursor(dictionary=True)
-                                try:
-                                    cursor.execute("""
-                                        SELECT * FROM users 
-                                        WHERE username = %s OR email = %s OR phone_number = %s
-                                    """, (login_identifier.strip(), login_identifier.strip(), login_identifier.strip()))
-                                    account = cursor.fetchone()
-                                except Exception:
-                                    # Safe fallback if any column is missing or mismatches
-                                    cursor.execute("SELECT * FROM users WHERE username = %s", (login_identifier.strip(),))
-                                    account = cursor.fetchone()
-                            else:
-                                cursor = conn.cursor()
-                                cursor.execute("""
-                                    SELECT * FROM users 
-                                    WHERE username = ? OR email = ? OR phone_number = ?
-                                """, (login_identifier.strip(), login_identifier.strip(), login_identifier.strip()))
-                                row = cursor.fetchone()
-                                account = dict(row) if row else None
-
-                            if account and account['password'] == login_password:
-                                st.session_state.user = account
-                                st.toast(f"Welcome back @{account['username']}!", icon="👋")
-                                st.rerun()
-                            else:
-                                st.error("Invalid login credentials provided.")
-                        finally:
-                            conn.close()
-                else:
-                    st.warning("Please enter your login credentials.")
-
-            st.markdown("<div style='text-align: center; margin: 15px 0; color: #8e8e8e; font-weight: 600; font-size: 0.85rem;'>OR</div>", unsafe_allow_html=True)
-
-            if st.button("Create Account", use_container_width=True):
-                st.session_state.auth_page = "signup"
-                st.rerun()
-
-            if st.button("Forgot Password?", use_container_width=True):
-                st.session_state.auth_page = "forgot"
-                st.rerun()
-
-        elif st.session_state.auth_page == "signup":
-            st.subheader("Sign up for Noob Learning")
+        if st.session_state.signup_msg:
+            st.success(st.session_state.signup_msg)
+            st.session_state.signup_msg = None
             
-            with st.form("signup_form"):
-                reg_username = st.text_input("Username (ID Name)")
-                reg_name = st.text_input("Full Name")
-                reg_password = st.text_input("Password", type="password")
-                reg_phone = st.text_input("Phone Number")
-                reg_email = st.text_input("Email Address")
-                reg_gender = st.selectbox("Gender", ["Male", "Female", "Prefer not to say"])
-                reg_account_type = st.selectbox("Account Type", ["Public", "Private"])
-                
-                profile_pic_file = st.file_uploader("Profile Picture", type=["png", "jpg", "jpeg"])
-
-                submit_signup = st.form_submit_button("Sign Up", use_container_width=True, type="primary")
-
-                if submit_signup:
-                    if reg_username and reg_password and reg_email:
-                        pic_base64 = None
-                        if profile_pic_file:
-                            b_data = profile_pic_file.getvalue()
-                            pic_base64 = f"data:{profile_pic_file.type};base64,{base64.b64encode(b_data).decode()}"
-
-                        db_type, conn = get_db_connection()
-                        if conn:
-                            try:
-                                cursor = conn.cursor()
-                                current_ts = get_current_ist_time()
-                                if db_type == "mysql":
-                                    cursor.execute("""
-                                        INSERT INTO users (username, password, name, phone_number, email, gender, account_type, profile_pic, created_at) 
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (
-                                        sanitize_input(reg_username),
-                                        reg_password,
-                                        sanitize_input(reg_name),
-                                        sanitize_input(reg_phone),
-                                        sanitize_input(reg_email),
-                                        reg_gender,
-                                        reg_account_type,
-                                        pic_base64,
-                                        current_ts
-                                    ))
-                                else:
-                                    cursor.execute("""
-                                        INSERT INTO users (username, password, name, phone_number, email, gender, account_type, profile_pic, created_at) 
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    """, (
-                                        sanitize_input(reg_username),
-                                        reg_password,
-                                        sanitize_input(reg_name),
-                                        sanitize_input(reg_phone),
-                                        sanitize_input(reg_email),
-                                        reg_gender,
-                                        reg_account_type,
-                                        pic_base64,
-                                        current_ts
-                                    ))
-                                conn.commit()
-                                st.success("Account created successfully! Please log in.")
-                                st.session_state.auth_page = "login"
-                                st.rerun()
-                            except Exception as ex:
-                                st.error(f"Username or email already exists or database error: {ex}")
-                            finally:
-                                conn.close()
-                    else:
-                        st.warning("Please fill in Username, Password, and Email.")
-
-            if st.button("Back to Login", use_container_width=True):
-                st.session_state.auth_page = "login"
-                st.rerun()
-
-        elif st.session_state.auth_page == "forgot":
-            st.subheader("Password Recovery")
-            forgot_input = st.text_input("Username, email, or phone number")
-            if st.button("Reset Password", use_container_width=True, type="primary"):
-                if forgot_input.strip():
-                    st.success("Recovery instructions sent to registered contact info.")
-            if st.button("Back to Login", use_container_width=True):
-                st.session_state.auth_page = "login"
-                st.rerun()
-
-    render_footer()
-# ==============================================================================
-# 6. AUTHENTICATED MAIN APPLICATION WITH BOTTOM NAVIGATION
-# ==============================================================================
-else:
-    user = st.session_state.user
-
-    # Header Brand
-    st.markdown('<div class="insta-brand-title" style="font-size: 2.3rem; margin-bottom: 0.2rem;">Noob Learning</div>', unsafe_allow_html=True)
-
-    # ------------------ BOTTOM NAVIGATION LAYOUT ------------------
-    nav_cols = st.columns(5)
-    with nav_cols[0]:
-        if st.button("🏠 Home", use_container_width=True):
-            st.session_state.nav_tab = "Home"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[1]:
-        if st.button("🔍 Search", use_container_width=True):
-            st.session_state.nav_tab = "Search"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[2]:
-        if st.button("➕ Post", use_container_width=True):
-            st.session_state.nav_tab = "Post"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[3]:
-        if st.button("💬 Chat", use_container_width=True):
-            st.session_state.nav_tab = "Chat"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[4]:
-        if st.button("👤 Profile", use_container_width=True):
-            st.session_state.nav_tab = "Profile"
-            st.session_state.viewing_profile_id = user['user_id']
-            st.rerun()
-
-    st.divider()
-
-    # ------------------ TAB 1: HOME FEED (REELS / POSTS STYLE) ------------------
-    if st.session_state.nav_tab == "Home" and not st.session_state.viewing_profile_id:
-        st.subheader("Feed / Reels")
-        db_type, conn = get_db_connection()
-        if conn:
-            try:
-                if db_type == "mysql":
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("""
-                        SELECT p.*, u.username, u.profile_pic, u.user_id as author_id
-                        FROM posts p 
-                        JOIN users u ON p.user_id = u.user_id 
-                        ORDER BY p.created_at DESC
-                    """)
-                    posts = cursor.fetchall()
-                else:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT p.*, u.username, u.profile_pic, u.user_id as author_id
-                        FROM posts p 
-                        JOIN users u ON p.user_id = u.user_id 
-                        ORDER BY p.created_at DESC
-                    """)
-                    posts = [dict(row) for row in cursor.fetchall()]
-
-                if not posts:
-                    st.info("No posts yet. Follow friends or create a post!")
-                else:
-                    for post in posts:
-                        with st.container():
-                            c_h1, c_h2 = st.columns([4, 1])
-                            with c_h1:
-                                exact_time_str = post.get('created_at', '')
-                                st.markdown(f"**@{post['username']}**<br><span style='font-size: 0.75rem; color: gray;'>📅 {exact_time_str}</span>", unsafe_allow_html=True)
-                            with c_h2:
-                                if post['author_id'] != user['user_id']:
-                                    if db_type == "mysql":
-                                        cur_f = conn.cursor(dictionary=True)
-                                        cur_f.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", (user['user_id'], post['author_id']))
-                                        rel = cur_f.fetchone()
-                                    else:
-                                        cur_f = conn.cursor()
-                                        cur_f.execute("SELECT * FROM follows WHERE follower_id = ? AND following_id = ?", (user['user_id'], post['author_id']))
-                                        rel = cur_f.fetchone()
-
-                                    if not rel:
-                                        if st.button("Follow", key=f"feed_follow_{post['post_id']}"):
-                                            if db_type == "mysql":
-                                                cur_f.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (%s, %s, 'Accepted', %s)", (user['user_id'], post['author_id'], get_current_ist_time()))
-                                            else:
-                                                cur_f.execute("INSERT INTO follows (follower_id, following_id, status, created_at) VALUES (?, ?, 'Accepted', ?)", (user['user_id'], post['author_id'], get_current_ist_time()))
-                                            conn.commit()
-                                            st.rerun()
-
-                            if post['media_url']:
-                                st.image(post['media_url'], use_container_width=True)
-                            if post['caption']:
-                                st.write(post['caption'])
-
-                            act_col1, act_col2, act_col3, act_col4 = st.columns(4)
-                            with act_col1:
-                                if st.button(f"❤️ {post.get('likes', 0)}", key=f"like_{post['post_id']}"):
-                                    cur2 = conn.cursor()
-                                    if db_type == "mysql":
-                                        cur2.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = %s", (post['post_id'],))
-                                        cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (%s, %s, 'liked', %s)", (user['user_id'], post['post_id'], get_current_ist_time()))
-                                    else:
-                                        cur2.execute("UPDATE posts SET likes = likes + 1 WHERE post_id = ?", (post['post_id'],))
-                                        cur2.execute("INSERT OR IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (?, ?, 'liked', ?)", (user['user_id'], post['post_id'], get_current_ist_time()))
-                                    conn.commit()
-                                    st.rerun()
-                            with act_col2:
-                                if st.button(f"💬 Comment", key=f"com_btn_{post['post_id']}"):
-                                    st.session_state[f"show_com_{post['post_id']}"] = not st.session_state.get(f"show_com_{post['post_id']}", False)
-                            with act_col3:
-                                if st.button(f"🔄 {post.get('shares', 0)}", key=f"share_{post['post_id']}"):
-                                    cur2 = conn.cursor()
-                                    if db_type == "mysql":
-                                        cur2.execute("UPDATE posts SET shares = shares + 1 WHERE post_id = %s", (post['post_id'],))
-                                    else:
-                                        cur2.execute("UPDATE posts SET shares = shares + 1 WHERE post_id = ?", (post['post_id'],))
-                                    conn.commit()
-                                    st.toast("Post shared!")
-                            with act_col4:
-                                if st.button("🔖 Save", key=f"save_{post['post_id']}"):
-                                    cur2 = conn.cursor()
-                                    if db_type == "mysql":
-                                        cur2.execute("INSERT IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (%s, %s, 'saved', %s)", (user['user_id'], post['post_id'], get_current_ist_time()))
-                                    else:
-                                        cur2.execute("INSERT OR IGNORE INTO user_interactions (user_id, post_id, interaction_type, created_at) VALUES (?, ?, 'saved', ?)", (user['user_id'], post['post_id'], get_current_ist_time()))
-                                    conn.commit()
-                                    st.toast("Saved to collection!")
-
-                            if st.session_state.get(f"show_com_{post['post_id']}", False):
-                                st.markdown("##### Comments")
-                                if db_type == "mysql":
-                                    cur_c = conn.cursor(dictionary=True)
-                                    cur_c.execute("""
-                                        SELECT c.*, u.username FROM comments c 
-                                        JOIN users u ON c.user_id = u.user_id 
-                                        WHERE c.post_id = %s ORDER BY c.created_at ASC
-                                    """, (post['post_id'],))
-                                    comments = cur_c.fetchall()
-                                else:
-                                    cur_c = conn.cursor()
-                                    cur_c.execute("""
-                                        SELECT c.*, u.username FROM comments c 
-                                        JOIN users u ON c.user_id = u.user_id 
-                                        WHERE c.post_id = ? ORDER BY c.created_at ASC
-                                    """, (post['post_id'],))
-                                    comments = [dict(row) for row in cur_c.fetchall()]
-
-                                for comm in comments:
-                                    comm_time = comm.get('created_at', '')
-                                    st.markdown(f"**@{comm['username']}**: {comm['comment_text']} <span style='font-size: 0.7rem; color: gray;'>({comm_time})</span>", unsafe_allow_html=True)
-
-                                with st.form(key=f"comment_form_{post['post_id']}", clear_on_submit=True):
-                                    new_comm = st.text_input("Add a comment...")
-                                    if st.form_submit_button("Post Comment"):
-                                        if new_comm.strip():
-                                            if db_type == "mysql":
-                                                cur_c.execute("INSERT INTO comments (post_id, user_id, comment_text, created_at) VALUES (%s, %s, %s, %s)",
-                                                              (post['post_id'], user['user_id'], sanitize_input(new_comm), get_current_ist_time()))
-                                            else:
-                                                cur_c.execute("INSERT INTO comments (post_id, user_id, comment_text, created_at) VALUES (?, ?, ?, ?)",
-                                                              (post['post_id'], user['user_id'], sanitize_input(new_comm), get_current_ist_time()))
-                                            conn.commit()
-                                            st.rerun()
-
-                            with st.form(key=f"msg_form_{post['post_id']}", clear_on_submit=True):
-                                msg_input = st.text_input(f"Message @{post['username']}...", placeholder="Say something or tap emoji...")
-                                mc1, mc2, mc3 = st.columns(3)
-                                with mc1:
-                                    react_laugh = st.form_submit_button("😂")
-                                with mc2:
-                                    react_love = st.form_submit_button("😍")
-                                with mc3:
-                                    react_fire = st.form_submit_button("🔥")
-                                
-                                submit_msg = st.form_submit_button("Send DM")
-                                if submit_msg and msg_input.strip():
-                                    cur_m = conn.cursor()
-                                    if db_type == "mysql":
-                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, %s, %s)",
-                                                      (user['user_id'], post['author_id'], sanitize_input(msg_input), get_current_ist_time()))
-                                    else:
-                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, ?, ?)",
-                                                      (user['user_id'], post['author_id'], sanitize_input(msg_input), get_current_ist_time()))
-                                    conn.commit()
-                                    st.success("Message sent to author with timestamp!")
-                                elif react_laugh:
-                                    cur_m = conn.cursor()
-                                    if db_type == "mysql":
-                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '😂', %s)",
-                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
-                                    else:
-                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, '😂', ?)",
-                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
-                                    conn.commit()
-                                    st.toast("Reaction sent!")
-                                elif react_love:
-                                    cur_m = conn.cursor()
-                                    if db_type == "mysql":
-                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '😍', %s)",
-                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
-                                    else:
-                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, '😍', ?)",
-                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
-                                    conn.commit()
-                                    st.toast("Reaction sent!")
-                                elif react_fire:
-                                    cur_m = conn.cursor()
-                                    if db_type == "mysql":
-                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (%s, %s, '🔥', %s)",
-                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
-                                    else:
-                                        cur_m.execute("INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, '🔥', ?)",
-                                                      (user['user_id'], post['author_id'], get_current_ist_time()))
-                                    conn.commit()
-                                    st.toast("Reaction sent!")
-
-                            st.divider()
-            finally:
-                conn.close()
-
- # ------------------ TAB 2: SEARCH & DISCOVER ------------------
-    elif st.session_state.nav_tab == "Search":
-        st.subheader("Search Users")
-        search_query = st.text_input("Search ID or Username...")
-        
-        if search_query:
-            db_type, conn = get_db_connection()
-            if conn:
-                try:
-                    wildcard_query = f"%{search_query}%"
-                    if search_query.isdigit():
-                        params = (int(search_query), wildcard_query, user['user_id'])
-                        mysql_sql = "SELECT user_id, username, profile_pic FROM users WHERE (user_id = %s OR username LIKE %s) AND user_id != %s"
-                        sqlite_sql = "SELECT user_id, username, profile_pic FROM users WHERE (user_id = ? OR username LIKE ?) AND user_id != ?"
-                    else:
-                        params = (wildcard_query, user['user_id'])
-                        mysql_sql = "SELECT user_id, username, profile_pic FROM users WHERE username LIKE %s AND user_id != %s"
-                        sqlite_sql = "SELECT user_id, username, profile_pic FROM users WHERE username LIKE ? AND user_id != ?"
-
-                    if db_type == "mysql":
-                        cursor = conn.cursor(dictionary=True)
-                        cursor.execute(mysql_sql, params)
-                        results = cursor.fetchall()
-                    else:
-                        cursor = conn.cursor()
-                        cursor.execute(sqlite_sql, params)
-                        results = [dict(row) for row in cursor.fetchall()]
-
-                    if not results:
-                        st.info("No users found.")
-                    else:
-                        for u in results:
-                            col_u1, col_u2 = st.columns([3, 1])
-                            with col_u1:
-                                st.markdown(f"**@{u['username']}** (ID: {u['user_id']})")
-                            with col_u2:
-                                if st.button("View Profile", key=f"view_{u['user_id']}"):
-                                    st.session_state.viewing_profile_id = u['user_id']
-                                    st.session_state.nav_tab = "Profile"
-                                    st.rerun()
-                            st.divider()
-                except Exception as e:
-                    st.error(f"Search Error: {e}")
-                finally:
-                    conn.close()
-    # ------------------ TAB 3: CREATE POST ------------------
-    elif st.session_state.nav_tab == "Post":
-        st.subheader("Create New Post / Reel")
-        with st.form("new_post_form", clear_on_submit=True):
-            caption = st.text_area("Caption...")
-            uploaded_file = st.file_uploader("Upload Image/Video", type=["png", "jpg", "jpeg", "mp4"])
-            submitted = st.form_submit_button("Share Post", type="primary", use_container_width=True)
-
-            if submitted:
-                media_url = None
-                if uploaded_file:
-                    b_data = uploaded_file.getvalue()
-                    media_url = f"data:{uploaded_file.type};base64,{base64.b64encode(b_data).decode()}"
-
-                if caption or media_url:
-                    db_type, conn = get_db_connection()
-                    if conn:
-                        try:
-                            cursor = conn.cursor()
-                            current_ts = get_current_ist_time()
-                            if db_type == "mysql":
-                                cursor.execute("INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (%s, %s, %s, %s)", 
-                                               (user['user_id'], sanitize_input(caption), media_url, current_ts))
-                            else:
-                                cursor.execute("INSERT INTO posts (user_id, caption, media_url, created_at) VALUES (?, ?, ?, ?)", 
-                                               (user['user_id'], sanitize_input(caption), media_url, current_ts))
-                            conn.commit()
-                            st.success(f"Posted successfully at {current_ts} IST! Reflected at the top of the feed.")
-                            st.session_state.nav_tab = "Home"
-                            st.rerun()
-                        finally:
-                            conn.close()
-                else:
-                    st.warning("Provide a caption or media.")
-
-  # ------------------ TAB 4: CHAT & GROUPS ------------------
-    elif st.session_state.nav_tab == "Chat":
-        st.subheader("Messages & Friend Chats")
-        db_type, conn = get_db_connection()
-        if conn:
-            try:
-                cursor = conn.cursor()
-                placeholder = "%s" if db_type == "mysql" else "?"
-                
-                friend_ids = []
-                try:
-                    # Step 1: Get all user IDs of accepted friends securely
-                    cursor.execute(f"SELECT following_id FROM follows WHERE follower_id = {placeholder} AND status = 'Accepted'", (user['user_id'],))
-                    following = [row[0] for row in cursor.fetchall() if row[0]]
-                    
-                    cursor.execute(f"SELECT follower_id FROM follows WHERE following_id = {placeholder} AND status = 'Accepted'", (user['user_id'],))
-                    followers = [row[0] for row in cursor.fetchall() if row[0]]
-
-                    friend_ids = list(set(following + followers))
-                except Exception:
-                    pass
-                
-                friends = []
-                if friend_ids:
-                    # Step 2: Fetch usernames for those friend IDs
-                    format_strings = ','.join([placeholder] * len(friend_ids))
-                    query = f"SELECT user_id, username FROM users WHERE user_id IN ({format_strings})"
-                    cursor.execute(query, tuple(friend_ids))
-                    
-                    rows = cursor.fetchall()
-                    for r in rows:
-                        friends.append({"user_id": r[0], "username": r[1]})
-
-                if not friends:
-                    st.info("You can only chat with users who are your friends (mutual follow or accepted request).")
-                else:
-                    friend_usernames = [f['username'] for f in friends]
-                    selected_friend = st.selectbox("Select Friend to Chat", friend_usernames, key="chat_select_friend")
-                    
-                    target_friend = next((f for f in friends if f['username'] == selected_friend), None)
-                    if target_friend:
-                        st.write(f"### Chat with @{target_friend['username']}")
-                        
-                        try:
-                            cursor.execute(f"""
-                                SELECT sender_id, receiver_id, message_text, created_at FROM messages 
-                                WHERE (sender_id = {placeholder} AND receiver_id = {placeholder}) OR (sender_id = {placeholder} AND receiver_id = {placeholder})
-                                ORDER BY created_at ASC
-                            """, (user['user_id'], target_friend['user_id'], target_friend['user_id'], user['user_id']))
-                            
-                            msg_rows = cursor.fetchall()
-                            messages = []
-                            for mr in msg_rows:
-                                messages.append({
-                                    "sender_id": mr[0],
-                                    "receiver_id": mr[1],
-                                    "message_text": mr[2],
-                                    "created_at": mr[3]
-                                })
-                        except Exception:
-                            messages = []
-
-                        for m in messages:
-                            sender_name = "You" if m['sender_id'] == user['user_id'] else target_friend['username']
-                            msg_time = m.get('created_at', '')
-                            st.markdown(f"**{sender_name}**: {m['message_text']} <span style='font-size: 0.7rem; color: gray;'>({msg_time})</span>", unsafe_allow_html=True)
-
-                        with st.form("chat_send_form", clear_on_submit=True):
-                            msg_text = st.text_input("Type a message...", key="chat_msg_input")
-                            if st.form_submit_button("Send"):
-                                if msg_text.strip():
-                                    current_ts = get_current_ist_time()
-                                    try:
-                                        cursor.execute(f"INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
-                                                       (user['user_id'], target_friend['user_id'], sanitize_input(msg_text), current_ts))
-                                        conn.commit()
-                                        st.rerun()
-                                    except Exception as msg_err:
-                                        st.error(f"Error sending message: {msg_err}")
-            finally:
-                conn.close()
-# ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
-if st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
-    profile_id = st.session_state.viewing_profile_id or user['user_id']
-    db_type, conn = get_db_connection()
-    if conn:
-        try:
-            if db_type == "mysql":
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM users WHERE user_id = %s", (profile_id,))
-                profile_user = cursor.fetchone()
-            else:
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
-                row = cursor.fetchone()
-                profile_user = dict(row) if row else None
-
-            if profile_user:
-                col_p1, col_p2 = st.columns([1, 3])
-                with col_p1:
-                    if profile_user.get('profile_pic'):
-                        st.image(profile_user['profile_pic'], width=100)
-                    else:
-                        st.write("👤")
-                with col_p2:
-                    st.subheader(f"@{profile_user['username']}")
-                    st.write(f"**Name:** {profile_user.get('name', 'N/A')}")
-                    st.write(f"**User ID:** {profile_user.get('user_id', 'N/A')}")
-                    st.write(f"**Bio:** {profile_user.get('bio', '')}")
-                    
-                    st.write(f"**Age:** {profile_user.get('age', 'N/A')} | **Gender:** {profile_user.get('gender', 'N/A')}")
-                    st.write(f"**Birth Date:** {profile_user.get('birth_date', 'N/A')}")
-                    
-                    st.caption(f"Account Type: {profile_user.get('account_type', 'Public')} | Joined: {profile_user.get('created_at', '')}")
-
-                if profile_user['user_id'] != user['user_id']:
-                    if db_type == "mysql":
-                        cursor.execute("SELECT * FROM follows WHERE follower_id = %s AND following_id = %s", 
-                                       (user['user_id'], profile_user['user_id']))
-                        follow_rel = cursor.fetchone()
-                    else:
-                        cursor.execute("SELECT * FROM follows WHERE follower_id = ? AND following_id = ?", 
-                                       (user['user_id'], profile_user['user_id']))
-                        row = cursor.fetchone()
-                        follow_rel = dict(row) if row else None
-
-                    if not follow_rel:
-                        if st.button("Follow", key="profile_follow_btn"):
-                            status = "Pending" if profile_user.get('account_type') == 'Private' else "Accepted"
-                            if db_type == "mysql":
-                                cursor.execute("""
-                                    INSERT INTO follows (follower_id, following_id, status, created_at) 
-                                    VALUES (%s, %s, %s, %s)
-                                """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
-                            else:
-                                cursor.execute("""
-                                    INSERT INTO follows (follower_id, following_id, status, created_at) 
-                                    VALUES (?, ?, ?, ?)
-                                """, (user['user_id'], profile_user['user_id'], status, get_current_ist_time()))
-                            conn.commit()
-                            st.rerun()
-                    else:
-                        rel_status = follow_rel.get('status', 'Accepted')
-                        if rel_status == 'Pending':
-                            st.button("Requested", disabled=True, key="profile_requested_btn")
-                        else:
-                            if st.button("Unfollow", key="profile_unfollow_btn"):
-                                if db_type == "mysql":
-                                    cursor.execute("DELETE FROM follows WHERE follower_id = %s AND following_id = %s",
-                                                   (user['user_id'], profile_user['user_id']))
-                                else:
-                                    cursor.execute("DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
-                                                   (user['user_id'], profile_user['user_id']))
-                                conn.commit()
-                                st.rerun()
-
-                st.divider()
-
-                if profile_user['user_id'] == user['user_id']:
-                    with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
-                        st.write("### Edit Profile Details")
-                        
-                        st.markdown("#### Update Profile Picture")
-                        uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
-
-                        if uploaded_pic is not None:
-                            st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
-                            if st.button("Save Profile Picture", key="save_profile_pic_btn"):
-                                try:
-                                    pic_bytes = uploaded_pic.getvalue()
-                                    if db_type == "mysql":
-                                        cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
-                                    else:
-                                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
-                                    conn.commit()
-                                    st.success("Profile picture updated successfully! Refreshing...")
-                                    st.rerun()
-                                except Exception as img_err:
-                                    st.error(f"Error updating profile picture: {img_err}")
-
-                        # FORM WRAPPER WITH CORRECT ALIGNED INDENTATION
-                        with st.form("edit_profile_form"):
-                            new_name = st.text_input("Name", value=user.get('name', '') or '', key="edit_name_input")
-                            new_bio = st.text_area("Bio", value=user.get('bio', '') or '', key="edit_bio_input")
-                            new_age = st.number_input("Age", min_value=1, max_value=120, value=int(user.get('age') or 18), key="edit_age_input")
-                            gender_options = ["Male", "Female", "Other", "Prefer not to say"]
-                            current_gender = user.get('gender')
-                            gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
-                            new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
-                            new_birth_date = st.text_input("Birth Date (DD-MM-YYYY)", value=user.get('birth_date', '') or '', key="edit_birthdate_input")
-
-                            if st.form_submit_button("Update Profile"):
-                                success = safe_update_user_profile(
-                                    user['user_id'], 
-                                    new_name, 
-                                    new_bio, 
-                                    new_age, 
-                                    new_gender, 
-                                    new_birth_date
-                                )
-                                if success:
-                                    user['name'] = new_name
-                                    user['bio'] = new_bio
-                                    user['age'] = new_age
-                                    user['gender'] = new_gender
-                                    user['birth_date'] = new_birth_date
-                                    st.success("Profile updated successfully!")
-                                    st.rerun()
-                        
-                        st.write("### 🔖 Saved Reels & Posts")
-                        if db_type == "mysql":
-                            cursor.execute("""
-                                SELECT p.* FROM posts p 
-                                JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                WHERE ui.user_id = %s AND ui.interaction_type = 'saved'
-                            """, (user['user_id'],))
-                            saved_posts = cursor.fetchall()
-                        else:
-                            cursor.execute("""
-                                SELECT p.* FROM posts p 
-                                JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                WHERE ui.user_id = ? AND ui.interaction_type = 'saved'
-                            """, (user['user_id'],))
-                            saved_posts = [dict(row) for row in cursor.fetchall()]
-                        if not saved_posts:
-                            st.caption("No saved posts or reels yet.")
-                        for sp in saved_posts:
-                            st.markdown(f"**{sp.get('caption', 'Saved Item')}** <span style='font-size: 0.7rem; color: gray;'>({sp.get('created_at', '')})</span>", unsafe_allow_html=True)
-                            if sp.get('media_url'):
-                                st.image(sp['media_url'], width=150)
-
-                        st.write("### ❤️ Liked Reels & Posts")
-                        if db_type == "mysql":
-                            cursor.execute("""
-                                SELECT p.* FROM posts p 
-                                JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                WHERE ui.user_id = %s AND ui.interaction_type = 'liked'
-                            """, (user['user_id'],))
-                            liked_posts = cursor.fetchall()
-                        else:
-                            cursor.execute("""
-                                SELECT p.* FROM posts p 
-                                JOIN user_interactions ui ON p.post_id = ui.post_id 
-                                WHERE ui.user_id = ? AND ui.interaction_type = 'liked'
-                            """, (user['user_id'],))
-                            liked_posts = [dict(row) for row in cursor.fetchall()]
-
-                        if not liked_posts:
-                            st.caption("No liked posts or reels yet.")
-                        for lp in liked_posts:
-                            st.markdown(f"**{lp.get('caption', 'Liked Item')}** <span style='font-size: 0.7rem; color: gray;'>({lp.get('created_at', '')})</span>", unsafe_allow_html=True)
-                            if lp.get('media_url'):
-                                st.image(lp['media_url'], width=150)
-
-                        if st.button("Log Out", key="settings_logout_btn"):
-                            st.session_state.user = None
-                            st.session_state.viewing_profile_id = None
-                            st.rerun()
-
-                st.write("### Posts")
-                if db_type == "mysql":
-                    cursor.execute("SELECT * FROM posts WHERE user_id = %s ORDER BY created_at DESC", (profile_user['user_id'],))
-                    user_posts = cursor.fetchall()
-                else:
-                    cursor.execute("SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC", (profile_user['user_id'],))
-                    user_posts = [dict(row) for row in cursor.fetchall()]
-
-                if not user_posts:
-                    st.caption("No posts yet.")
-                else:
-                    for up in user_posts:
-                        post_date_time = up.get('created_at', '')
-                        st.markdown(f"<span style='font-size: 0.75rem; color: gray;'>📅 {post_date_time}</span>", unsafe_allow_html=True)
-                        if up['caption']:
-                            st.write(up['caption'])
-                        if up['media_url']:
-                            st.image(up['media_url'], width=250)
-                        st.divider()
-        finally:
-            conn.close()
-
-render_footer()
-#################################################################################################################################
-def make_user_follow_saraah(user_id: int):
-    """Automatically forces any user to follow the exact Saraah Robotics ID."""
-    db_type, conn = get_db_connection()
-    if not conn:
-        return
-    try:
-        cursor = conn.cursor()
-        target_username = "SARAAH ROBOTICS"
-        
-        if db_type == "mysql":
-            cursor.execute("SELECT user_id FROM users WHERE username = %s LIMIT 1", (target_username,))
-            saraah_user = cursor.fetchone()
-            saraah_id = saraah_user['user_id'] if saraah_user else None
-        else:
-            cursor.execute("SELECT user_id FROM users WHERE username = ? LIMIT 1", (target_username,))
-            row = cursor.fetchone()
-            saraah_id = row[0] if row else None
-
-        if saraah_id and saraah_id != user_id:
-            if db_type == "mysql":
-                cursor.execute("""
-                    INSERT IGNORE INTO follows (follower_id, following_id, status, created_at) 
-                    VALUES (%s, %s, 'Accepted', %s)
-                """, (user_id, saraah_id, get_current_ist_time()))
-            else:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO follows (follower_id, following_id, status, created_at) 
-                    VALUES (?, ?, 'Accepted', ?)
-                """, (user_id, saraah_id, get_current_ist_time()))
-            conn.commit()
-    except Exception as e:
-        logger.error(f"Error auto-following Saraah Robotics: {e}")
-    finally:
-        conn.close()
-##################################################################################################################################################
-def render_profile_picture_upload_component(user_id: int):
-    """Renders a plus sign avatar placeholder if no profile picture exists, allowing users to upload one."""
-    db_type, conn = get_db_connection()
-    if not conn:
-        return
-        
-    try:
-        cursor = conn.cursor()
-        if db_type == "mysql":
-            cursor.execute("SELECT profile_pic FROM users WHERE user_id = %s LIMIT 1", (user_id,))
-            user_row = cursor.fetchone()
-            current_pic = user_row['profile_pic'] if user_row else None
-        else:
-            cursor.execute("SELECT profile_pic FROM users WHERE user_id = ? LIMIT 1", (user_id,))
-            row = cursor.fetchone()
-            current_pic = row[0] if row else None
-
-        st.markdown("### Profile Picture")
-        
-        if not current_pic:
-            st.info("No profile picture found. Click below to add one with a '+' indicator style.")
-            uploaded_file = st.file_uploader("Upload Profile Picture (+)", type=["png", "jpg", "jpeg"], key="profile_pic_upload_plus")
+        with st.container():
+            st.markdown('<div class="login-box">', unsafe_allow_html=True)
             
-            if uploaded_file is not None:
-                file_bytes = uploaded_file.read()
-                if db_type == "mysql":
-                    cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (file_bytes, user_id))
-                else:
-                    cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (file_bytes, user_id))
-                conn.commit()
-                st.success("Profile picture updated successfully! Refreshing...")
-                st.rerun()
-        else:
-            st.success("Profile picture is already set.")
-    except Exception as e:
-        logger.error(f"Error handling profile picture upload: {e}")
-    finally:
-        conn.close()
-################################################################################################################################################################
-def render_settings_and_activity_hub(user_id: int):
-    """Renders an Instagram-style Settings and Activity menu with options to update details, profile picture, birthday, and handles birthday wishes."""
-    db_type, conn = get_db_connection()
-    if not conn:
-        return
-
-    try:
-        cursor = conn.cursor()
-        if db_type == "mysql":
-            cursor.execute("SELECT * FROM users WHERE user_id = %s LIMIT 1", (user_id,))
-            user_row = cursor.fetchone()
-        else:
-            cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (user_id,))
-            row = cursor.fetchone()
-            user_row = dict(row) if row else None
-
-        if not user_row:
-            return
-
-        # Check if birthday column exists, if not create/handle it gracefully
-        # Check if birthday is set, if not ask user for birthday after account creation
-        user_birthday = user_row.get('birthday') if isinstance(user_row, dict) else None
-
-        # Check today's date for birthday greetings (User's birthday is March 7th based on profile context)
-        current_date_str = datetime.datetime.now().strftime("%m-%d")
-        if user_birthday and str(user_birthday).endswith(current_date_str):
-            st.balloons()
-            st.success("🎉 Happy Birthday! Wishing you a fantastic year ahead from Saraah Robotics!")
-
-        # Settings icon trigger using Streamlit expander or button toggle
-        settings_open = st.toggle("⚙️ Settings and activity", key="settings_activity_toggle")
-
-        if settings_open:
-            st.markdown("### ⚙️ Settings and activity")
-            st.markdown("---")
-            
-            # Sub-sections mimicking Instagram Settings Layout
-            setting_tab = st.radio(
-                "Select a setting option:", 
-                [
-                    "Account Details (Name, Phone, Email, Password)", 
-                    "Profile Picture Upload", 
-                    "Birthday Information", 
-                    "Saved & Archive Activity", 
-                    "Notifications & Time Management"
-                ],
-                key="instagram_settings_menu_radio"
+            login_user_input = st.text_input(
+                "Username or mobile number",
+                placeholder="Username or mobile number",
+                key="login_user_input",
+                label_visibility="collapsed"
             )
-
-            st.markdown("---")
-
-            if setting_tab == "Account Details (Name, Phone, Email, Password)":
-                st.subheader("Update Account Credentials")
-                with st.form("update_credentials_form"):
-                    up_name = st.text_input("Name", value=user_row.get('name', ''))
-                    up_phone = st.text_input("Phone Number", value=user_row.get('phone_number', ''))
-                    up_email = st.text_input("Email", value=user_row.get('email', ''))
-                    up_pass = st.text_input("New Password", type="password", placeholder="Leave blank or enter new password")
-
-                    submit_creds = st.form_submit_button("Save Changes", type="primary")
-                    if submit_creds:
-                        try:
-                            if db_type == "mysql":
-                                if up_pass.strip():
-                                    cursor.execute("UPDATE users SET name = %s, phone_number = %s, email = %s, password = %s WHERE user_id = %s",
-                                                   (sanitize_input(up_name), sanitize_input(up_phone), sanitize_input(up_email), up_pass.strip(), user_id))
-                                else:
-                                    cursor.execute("UPDATE users SET name = %s, phone_number = %s, email = %s WHERE user_id = %s",
-                                                   (sanitize_input(up_name), sanitize_input(up_phone), sanitize_input(up_email), user_id))
-                            else:
-                                if up_pass.strip():
-                                    cursor.execute("UPDATE users SET name = ?, phone_number = ?, email = ?, password = ? WHERE user_id = ?",
-                                                   (sanitize_input(up_name), sanitize_input(up_phone), sanitize_input(up_email), up_pass.strip(), user_id))
-                                else:
-                                    cursor.execute("UPDATE users SET name = ?, phone_number = ?, email = ? WHERE user_id = ?",
-                                                   (sanitize_input(up_name), sanitize_input(up_phone), sanitize_input(up_email), user_id))
-                            conn.commit()
-                            st.success("Account details updated successfully!")
-                            st.rerun()
-                        except Exception as ex:
-                            st.error(f"Error updating details: {ex}")
-
-            elif setting_tab == "Profile Picture Upload":
-                st.subheader("Update Profile Picture")
-                current_pic = user_row.get('profile_pic')
-                if current_pic:
-                    st.image(current_pic, width=120)
-                else:
-                    st.info("No profile picture uploaded yet.")
-
-                pic_file = st.file_uploader("Upload new profile picture (+)", type=["png", "jpg", "jpeg"], key="settings_pic_uploader")
-                if pic_file is not None:
-                    b_data = pic_file.read()
-                    pic_base64 = f"data:{pic_file.type};base64,{base64.b64encode(b_data).decode()}"
-                    if db_type == "mysql":
-                        cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_base64, user_id))
+            
+            login_pass_input = st.text_input(
+                "Password",
+                type="password",
+                placeholder="Password",
+                key="login_pass_input",
+                label_visibility="collapsed"
+            )
+            
+            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+            
+            if st.button("Log in", type="primary", key="btn_login_submit"):
+                if login_user_input and login_pass_input:
+                    user = authenticate_user(login_user_input, login_pass_input)
+                    if user:
+                        st.session_state.logged_in = True
+                        st.session_state.username = user["username"]
+                        st.rerun()
                     else:
-                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_base64, user_id))
-                    conn.commit()
-                    st.success("Profile picture updated!")
-                    st.rerun()
-
-            elif setting_tab == "Birthday Information":
-                st.subheader("Manage Birthday")
-                current_bday = user_row.get('birthday') if isinstance(user_row, dict) else None
-                if not current_bday:
-                    st.warning("Your birthday has not been set yet. Please add it below to receive birthday greetings!")
-                
-                with st.form("birthday_update_form"):
-                    bday_input = st.date_input("Select your Birthday", value=datetime.date(2005, 1, 1))
-                    submit_bday = st.form_submit_button("Save Birthday")
-                    if submit_bday:
-                        bday_str = bday_input.strftime("%Y-%m-%d")
-                        try:
-                            if db_type == "mysql":
-                                # Safely ensure birthday column exists or update it
-                                cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday DATE;")
-                                cursor.execute("UPDATE users SET birthday = %s WHERE user_id = %s", (bday_str, user_id))
-                            else:
-                                try:
-                                    cursor.execute("ALTER TABLE users ADD COLUMN birthday TEXT;")
-                                except Exception:
-                                    pass
-                                cursor.execute("UPDATE users SET birthday = ? WHERE user_id = ?", (bday_str, user_id))
-                            conn.commit()
-                            st.success("Birthday saved successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error saving birthday: {e}")
-
-            elif setting_tab == "Saved & Archive Activity":
-                st.subheader("Your Activity Overview")
-                st.write("• View saved posts, reels, and archived memories.")
-                st.info("All interactive logs are securely maintained under Saraah Robotics storage.")
-
-            elif setting_tab == "Notifications & Time Management":
-                st.subheader("Preferences")
-                st.write("• Push Notifications: Enabled")
-                st.write("• Daily Reminder: Active")
-
-    except Exception as e:
-        logger.error(f"Settings Hub Error: {e}")
-    finally:
-        conn.close()
-# ------------------ BOTTOM NAVIGATION LAYOUT (7 BUTTONS) ------------------#
-    #1. Update your navigation buttons to 7 columns (including Settings)
-    nav_cols = st.columns(7)
-    with nav_cols[0]:
-        if st.button("🏠 Home", use_container_width=True):
-            st.session_state.nav_tab = "Home"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[1]:
-        if st.button("🔍 Search", use_container_width=True):
-            st.session_state.nav_tab = "Search"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[2]:
-        if st.button("➕ Post", use_container_width=True):
-            st.session_state.nav_tab = "Post"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[3]:
-        if st.button("🎬 Reels", use_container_width=True):
-            st.session_state.nav_tab = "Reels"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[4]:
-        if st.button("💬 Chat", use_container_width=True):
-            st.session_state.nav_tab = "Chat"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-    with nav_cols[5]:
-        if st.button("👤 Profile", use_container_width=True):
-            st.session_state.nav_tab = "Profile"
-            st.session_state.viewing_profile_id = user['user_id']
-            st.rerun()
-    with nav_cols[6]:
-        if st.button("⚙️ Settings", use_container_width=True):
-            st.session_state.nav_tab = "Settings"
-            st.session_state.viewing_profile_id = None
-            st.rerun()
-
-    # 2. Route checker for Settings#
-    if st.session_state.get("nav_tab") == "Home":
-        pass
-    elif st.session_state.get("nav_tab") == "Search":
-        pass
-    elif st.session_state.get("nav_tab") == "Post":
-        pass
-    elif st.session_state.get("nav_tab") == "Reels":
-        render_reels_viewer_page(user['user_id'])
-    elif st.session_state.get("nav_tab") == "Chat":
-        render_live_chat(st.session_state.get("username"))
-    elif st.session_state.get("nav_tab") == "Profile":
-        pass
-    elif st.session_state.get("nav_tab") == "Settings":
-        render_settings_page(user['user_id'])
-##################################################################################################################################################################
-# ==============================================================================
-# SARAHAH ROBOTICS AUTOMATED SETTINGS & AUTO-FOLLOW MODULE (Paste at the very last)
-# ==============================================================================
-
-def make_user_follow_saraah(user_id: int):
-    """Automatically forces any user to follow @SARAAH ROBOTICS instantly upon login."""
-    db_type, conn = get_db_connection()
-    if not conn:
-        return
-    try:
-        cursor = conn.cursor()
-        target_username = "SARAAH ROBOTICS"
-        
-        if db_type == "mysql":
-            cursor.execute("SELECT user_id FROM users WHERE username = %s LIMIT 1", (target_username,))
-            saraah_user = cursor.fetchone()
-            saraah_id = saraah_user['user_id'] if saraah_user else None
-        else:
-            cursor.execute("SELECT user_id FROM users WHERE username = ? LIMIT 1", (target_username,))
-            row = cursor.fetchone()
-            saraah_id = row[0] if row else None
-
-        if saraah_id and saraah_id != user_id:
-            if db_type == "mysql":
-                cursor.execute("""
-                    INSERT IGNORE INTO follows (follower_id, following_id, status, created_at) 
-                    VALUES (%s, %s, 'Accepted', %s)
-                """, (user_id, saraah_id, get_current_ist_time()))
-            else:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO follows (follower_id, following_id, status, created_at) 
-                    VALUES (?, ?, 'Accepted', ?)
-                """, (user_id, saraah_id, get_current_ist_time()))
-            conn.commit()
-    except Exception as e:
-        logger.error(f"Error auto-following Saraah Robotics: {e}")
-    finally:
-        conn.close()
-
-def render_settings_page(user_id: int):
-    """Renders the dedicated Settings page for updating name, phone, email, password, profile pic, and birthday."""
-    db_type, conn = get_db_connection()
-    if not conn:
-        return
-
-    try:
-        cursor = conn.cursor()
-        if db_type == "mysql":
-            cursor.execute("SELECT * FROM users WHERE user_id = %s LIMIT 1", (user_id,))
-            user_row = cursor.fetchone()
-        else:
-            cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (user_id,))
-            row = cursor.fetchone()
-            user_row = dict(row) if row else None
-
-        if not user_row:
-            st.error("User profile data not found.")
-            return
-
-        st.subheader("⚙️ Settings and Activity")
-        st.write("Manage your account details, profile customization, and preferences.")
-        st.divider()
-
-        setting_option = st.selectbox(
-            "Select Setting Category",
-            [
-                "Edit Account Details (Name, Phone, Email, Password)",
-                "Update Profile Picture",
-                "Birthday Management"
-            ]
-        )
-
-        st.markdown("---")
-
-        if setting_option == "Edit Account Details (Name, Phone, Email, Password)":
-            st.markdown("### 👤 Edit Profile Information")
-            with st.form("settings_edit_credentials"):
-                new_name = st.text_input("Full Name", value=user_row.get('name', ''))
-                new_phone = st.text_input("Phone Number", value=user_row.get('phone_number', ''))
-                new_email = st.text_input("Email Address", value=user_row.get('email', ''))
-                new_password = st.text_input("New Password", type="password", placeholder="Leave blank to keep current password")
-                
-                submitted = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
-                if submitted:
-                    try:
-                        if db_type == "mysql":
-                            if new_password.strip():
-                                cursor.execute("""
-                                    UPDATE users SET name = %s, phone_number = %s, email = %s, password = %s 
-                                    WHERE user_id = %s
-                                """, (sanitize_input(new_name), sanitize_input(new_phone), sanitize_input(new_email), new_password.strip(), user_id))
-                            else:
-                                cursor.execute("""
-                                    UPDATE users SET name = %s, phone_number = %s, email = %s 
-                                    WHERE user_id = %s
-                                """, (sanitize_input(new_name), sanitize_input(new_phone), sanitize_input(new_email), user_id))
-                        else:
-                            if new_password.strip():
-                                cursor.execute("""
-                                    UPDATE users SET name = ?, phone_number = ?, email = ?, password = ? 
-                                    WHERE user_id = ?
-                                """, (sanitize_input(new_name), sanitize_input(new_phone), sanitize_input(new_email), new_password.strip(), user_id))
-                            else:
-                                cursor.execute("""
-                                    UPDATE users SET name = ?, phone_number = ?, email = ? 
-                                    WHERE user_id = ?
-                                """, (sanitize_input(new_name), sanitize_input(new_phone), sanitize_input(new_email), user_id))
-                        conn.commit()
-                        st.success("Account details updated successfully!")
-                        st.rerun()
-                    except Exception as err:
-                        st.error(f"Failed to update profile: {err}")
-
-        elif setting_option == "Update Profile Picture":
-            st.markdown("### 🖼️ Profile Picture")
-            current_pic = user_row.get('profile_pic')
-            if current_pic:
-                st.image(current_pic, width=150)
-            else:
-                st.info("No profile picture currently uploaded.")
-
-            pic_file = st.file_uploader("Upload new picture", type=["png", "jpg", "jpeg"], key="settings_page_pic_upload")
-            if pic_file is not None:
-                b_data = pic_file.read()
-                pic_base64 = f"data:{pic_file.type};base64,{base64.b64encode(b_data).decode()}"
-                if db_type == "mysql":
-                    cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_base64, user_id))
+                        st.error("Invalid username or password.")
                 else:
-                    cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_base64, user_id))
-                conn.commit()
-                st.success("Profile picture updated successfully!")
-                st.rerun()
-
-        elif setting_option == "Birthday Information":
-            st.markdown("### 🎂 Birthday & Greetings")
-            current_bday = user_row.get('birthday') if isinstance(user_row, dict) else None
-            if not current_bday:
-                st.warning("Please provide your birthday so we can greet you on your special day!")
-            else:
-                st.info(f"Registered Birthday: {current_bday}")
-
-            with st.form("settings_birthday_form"):
-                bday_val = st.date_input("Select Birthday", value=datetime.date(2005, 1, 1))
-                sub_bday = st.form_submit_button("Save Birthday", use_container_width=True)
-                if sub_bday:
-                    bday_str = bday_val.strftime("%Y-%m-%d")
-                    try:
-                        if db_type == "mysql":
-                            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday DATE;")
-                            cursor.execute("UPDATE users SET birthday = %s WHERE user_id = %s", (bday_str, user_id))
-                        else:
-                            try:
-                                cursor.execute("ALTER TABLE users ADD COLUMN birthday TEXT;")
-                            except Exception:
-                                pass
-                            cursor.execute("UPDATE users SET birthday = ? WHERE user_id = ?", (bday_str, user_id))
-                        conn.commit()
-                        st.success("Birthday saved successfully!")
-                        st.rerun()
-                    except Exception as ex:
-                        st.error(f"Error saving birthday: {ex}")
-
-    except Exception as e:
-        logger.error(f"Settings page error: {e}")
-    finally:
-        conn.close()
-# ==============================================================================
-# FULLY WORKING DIRECT MESSAGE HANDLER (Paste at the very last)
-# ==============================================================================
-def render_and_handle_send_dm(current_user_id: int, recipient_user_id: int):
-    """Renders a working input field and handles direct messaging dynamically so it reflects immediately."""
-    st.markdown("---")
-    st.subheader("💬 Direct Message")
-    
-    # Use a unique form key based on the recipient to prevent state collisions
-    dm_form_key = f"dm_form_{current_user_id}_{recipient_user_id}"
-    
-    with st.form(key=dm_form_key, clear_on_submit=True):
-        message_text = st.text_input("Type your message here...", placeholder="Say something...")
-        send_clicked = st.form_submit_button("Send DM", type="primary")
-        
-        if send_clicked:
-            if not message_text.strip():
-                st.warning("Please type a message before sending.")
-                return
-
-            db_type, conn = get_db_connection()
-            if not conn:
-                st.error("Database connection failed.")
-                return
-
-            try:
-                cursor = conn.cursor()
-                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                # Insert message into database supporting both MySQL and SQLite setups
-                if db_type == "mysql":
-                    cursor.execute("""
-                        INSERT INTO messages (sender_id, recipient_id, message_text, created_at, is_read) 
-                        VALUES (%s, %s, %s, %s, 0)
-                    """, (current_user_id, recipient_user_id, sanitize_input(message_text), current_time))
-                else:
-                    cursor.execute("""
-                        INSERT INTO messages (sender_id, recipient_id, message_text, created_at, is_read) 
-                        VALUES (?, ?, ?, ?, 0)
-                    """, (current_user_id, recipient_user_id, sanitize_input(message_text), current_time))
-                
-                conn.commit()
-                st.success("Message sent successfully!")
-                st.rerun()
-            except Exception as e:
-                logger.error(f"Error sending DM: {e}")
-                st.error(f"Failed to send message: {e}")
-            finally:
-                conn.close()
-# ==============================================================================
-# REELS VIEWER MODULE & 6-BUTTON NAVIGATION (Paste at the very last)
-# ==============================================================================
-def render_reels_viewer_page(current_user_id: int):
-    """Renders a dedicated Reels viewing section where users can watch available reels and interact with them."""
-    st.subheader("🎬 Reels Feed")
-    st.write("Watch short-form video reels and media posted across the community.")
-    st.divider()
-
-    db_type, conn = get_db_connection()
-    if not conn:
-        st.error("Database connection failed.")
-        return
-
-    try:
-        cursor = conn.cursor()
-        # Fetch available video posts or reels from the database
-        if db_type == "mysql":
-            cursor.execute("""
-                SELECT p.*, u.username, u.profile_pic 
-                FROM posts p 
-                JOIN users u ON p.user_id = u.user_id 
-                WHERE p.media_type LIKE '%video%' OR p.caption LIKE '%reel%' 
-                ORDER BY p.created_at DESC LIMIT 20
-            """)
-            reels = cursor.fetchall()
-        else:
-            cursor.execute("""
-                SELECT p.*, u.username, u.profile_pic 
-                FROM posts p 
-                JOIN users u ON p.user_id = u.user_id 
-                WHERE p.media_type LIKE '%video%' OR p.caption LIKE '%reel%' 
-                ORDER BY p.created_at DESC LIMIT 20
-            """)
-            reels = [dict(row) for row in cursor.fetchall()]
-
-        if not reels:
-            st.info("No reels available at the moment. Check back soon or upload a video reel!")
-            return
-
-        for reel in reels:
-            username = reel.get('username', 'Unknown')
-            caption = reel.get('caption', '')
-            media_data = reel.get('media_url') or reel.get('media')
-            created_at = reel.get('created_at', '')
-
-            with st.container():
-                st.markdown(f"**@{username}** • <span style='color:gray; font-size:12px;'>{created_at}</span>", unsafe_allow_html=True)
-                if caption:
-                    st.write(caption)
-                
-                if media_data:
-                    try:
-                        st.video(media_data)
-                    except Exception:
-                        st.warning("Could not load video media.")
-                st.markdown("---")
-
-    except Exception as e:
-        logger.error(f"Error rendering reels viewer: {e}")
-        st.error("Could not load reels feed.")
-    finally:
-        conn.close()
-# ==============================================================================
-# NOOB LEARNING - REELS PAGE (Paste at the very last line of your file)
-# ==============================================================================
-def render_reels_viewer_page(current_user_id: int):
-    """Renders a Reels style feed matching the requested layout with 'Noob Learning' branding."""
-    
-    # Top Header matching Instagram style bar with "Noob Learning" title
-    col1, col2, col3 = st.columns([1, 6, 1])
-    with col1:
-        st.markdown("📸")
-    with col2:
-        st.markdown("<h3 style='text-align: center; margin: 0; font-family: sans-serif;'>Noob Learning</h3>", unsafe_allow_html=True)
-    with col3:
-        st.markdown("✉️")
-    
-    st.divider()
-
-    db_type, conn = get_db_connection()
-    if not conn:
-        st.error("Database connection failed.")
-        return
-
-    try:
-        cursor = conn.cursor()
-        if db_type == "mysql":
-            cursor.execute("""
-                SELECT p.*, u.username, u.profile_pic 
-                FROM posts p 
-                JOIN users u ON p.user_id = u.user_id 
-                ORDER BY p.created_at DESC LIMIT 20
-            """)
-            reels = cursor.fetchall()
-        else:
-            cursor.execute("""
-                SELECT p.*, u.username, u.profile_pic 
-                FROM posts p 
-                JOIN users u ON p.user_id = u.user_id 
-                ORDER BY p.created_at DESC LIMIT 20
-            """)
-            reels = [dict(row) for row in cursor.fetchall()]
-
-        if not reels:
-            st.info("No media posts available yet.")
-            return
-
-        for reel in reels:
-            username = reel.get('username', 'user')
-            caption = reel.get('caption', '')
-            media_data = reel.get('media_url') or reel.get('media')
-
-            with st.container():
-                # User info header row above post
-                st.markdown(f"**@{username}**")
-                
-                # Main media display (video or image)
-                if media_data:
-                    try:
-                        if "video" in str(media_data).lower() or str(media_data).endswith(('.mp4', '.mov', '.avi')):
-                            st.video(media_data)
-                        else:
-                            st.image(media_data, use_container_width=True)
-                    except Exception:
-                        st.info("Displaying media placeholder.")
-                
-                # Action buttons row (Like, Comment, Share, Bookmark)
-                ac1, ac2, ac3, ac4 = st.columns([1, 1, 1, 6])
-                with ac1:
-                    st.button("🤍", key=f"like_{reel.get('post_id')}")
-                with ac2:
-                    st.button("💬", key=f"comment_{reel.get('post_id')}")
-                with ac3:
-                    st.button("↗️", key=f"share_{reel.get('post_id')}")
-                
-                # Caption text
-                if caption:
-                    st.markdown(f"**@{username}** {caption}")
-                
-                st.markdown("---")
-
-    except Exception as e:
-        st.error("Could not load feed.")
-    finally:
-        conn.close()
-# ==============================================================================
-# FOLLOWER & FOLLOWING DISPLAY WIDGET (Paste at the very last line of your file)
-# ==============================================================================
-def render_follower_stats_widget(profile_user_id: int, profile_username: str):
-    """Displays live follower/following counts with special override for SARAAH_ROBOTICS."""
-    db_type, conn = get_db_connection()
-    if not conn:
-        return
-
-    try:
-        cursor = conn.cursor(dictionary=True) if db_type == "mysql" else conn.cursor()
-        
-        # Check if table exists, create if missing
-        if db_type == "mysql":
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS follows (
-                    follower_id INT,
-                    following_id INT,
-                    PRIMARY KEY (follower_id, following_id)
-                )
-            """)
-        else:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS follows (
-                    follower_id INTEGER,
-                    following_id INTEGER,
-                    PRIMARY KEY (follower_id, following_id)
-                )
-            """)
-        conn.commit()
-
-        # Get actual follower count from database
-        if db_type == "mysql":
-            cursor.execute("SELECT COUNT(*) as cnt FROM follows WHERE following_id = %s", (profile_user_id,))
-            res = cursor.fetchone()
-            db_followers = res['cnt'] if isinstance(res, dict) else res[0]
+                    st.warning("Please enter your credentials.")
+                    
+            st.markdown('</div>', unsafe_allow_html=True)
             
-            cursor.execute("SELECT COUNT(*) as cnt FROM follows WHERE follower_id = %s", (profile_user_id,))
-            res_f = cursor.fetchone()
-            following_count = res_f['cnt'] if isinstance(res_f, dict) else res_f[0]
-        else:
-            cursor.execute("SELECT COUNT(*) FROM follows WHERE following_id = ?", (profile_user_id,))
-            db_followers = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM follows WHERE follower_id = ?", (profile_user_id,))
-            following_count = cursor.fetchone()[0]
+        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+        
+        if st.button("Create new account", type="secondary", key="btn_go_signup"):
+            st.session_state.auth_mode = "signup"
+            st.rerun()
+            
+        st.markdown('<div class="login-footer-text">SARAAH ROBOTICS</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # Apply base target of 56,780 for SARAAH_ROBOTICS plus any real new database followers
-        if str(profile_username).strip().upper() == "SARAAH_ROBOTICS":
-            # If database has followers, add them to the base value dynamically
-            followers_count = 56780 + db_followers
-        else:
-            followers_count = db_followers
+    # -------------------------------------------------------------------------
+    # SIGN UP VIEW (Instagram-style Detailed Onboarding)
+    # -------------------------------------------------------------------------
+    elif st.session_state.auth_mode == "signup":
+        st.markdown('<div class="login-container" style="max-width: 480px;">', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">Join Noob Learning</div>', unsafe_allow_html=True)
+        st.markdown('<p style="color:#64748b; font-size:14px; margin-top:-16px; margin-bottom:24px;">Powered by Saraah Robotics</p>', unsafe_allow_html=True)
+        
+        with st.container():
+            st.markdown('<div class="login-box" style="text-align: left;">', unsafe_allow_html=True)
+            
+            st.markdown("##### 1. Account Security")
+            s_fullname = st.text_input("Full Name", placeholder="e.g. John Doe", key="su_fullname")
+            s_username = st.text_input("User ID / Username", placeholder="e.g. noob_master", key="su_username")
+            s_password = st.text_input("Password", type="password", placeholder="Choose a strong password", key="su_password")
+            
+            st.markdown("##### 2. Profile Details")
+            col1, col2 = st.columns(2)
+            with col1:
+                s_age = st.number_input("Age", min_value=10, max_value=120, value=18, key="su_age")
+            with col2:
+                s_gender = st.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"], key="su_gender")
+                
+            s_birthdate = st.text_input("Birth Date (DD/MM/YYYY)", placeholder="e.g. 15/08/2004", key="su_birthdate")
+            s_account_type = st.radio("Account Privacy", ["Public", "Private"], horizontal=True, key="su_acct_type")
+            s_bio = st.text_area("Bio / About You", placeholder="Share your learning interests & goals...", key="su_bio")
+            
+            s_pic_file = st.file_uploader("Profile Picture Upload (Optional)", type=["jpg", "jpeg", "png"], key="su_pic")
+            
+            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+            
+            if st.button("Create Account", type="primary", key="btn_create_acct"):
+                if s_username and s_password and s_fullname:
+                    pic_bytes = s_pic_file.read() if s_pic_file else None
+                    success, msg = create_user_account(
+                        user_id=s_username,
+                        username=s_username,
+                        password=s_password,
+                        full_name=s_fullname,
+                        bio=s_bio,
+                        age=s_age,
+                        gender=s_gender,
+                        birth_date=s_birthdate,
+                        account_type=s_account_type,
+                        profile_pic_bytes=pic_bytes
+                    )
+                    if success:
+                        st.session_state.signup_msg = "Account created successfully! Please log in."
+                        st.session_state.auth_mode = "login"
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                else:
+                    st.warning("Please fill in all required fields (Full Name, Username, Password).")
+                    
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        if st.button("Already have an account? Log in", type="secondary", key="btn_back_login"):
+            st.session_state.auth_mode = "login"
+            st.rerun()
+            
+        st.markdown('<div class="login-footer-text">SARAAH ROBOTICS</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # Display Metrics Layout
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Followers", f"{followers_count:,}")
-        with col2:
-            st.metric("Following", f"{following_count:,}")
+# =============================================================================
+# LOGGED IN DASHBOARD
+# =============================================================================
+else:
+    current_user = get_user(st.session_state.username)
+    
+    # -------------------------------------------------------------------------
+    # TOP NAVIGATION BAR
+    # -------------------------------------------------------------------------
+    nav_col1, nav_col2, nav_col3 = st.columns([3, 6, 2])
+    
+    with nav_col1:
+        st.markdown('''
+        <div>
+            <span class="brand-logo">⚡ Noob Learning</span><br>
+            <span class="brand-sub">Powered by Saraah Robotics</span>
+        </div>
+        ''', unsafe_allow_html=True)
+        
+    with nav_col2:
+        btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
+        with btn_c1:
+            if st.button("🏠 Feed", use_container_width=True, type="primary" if st.session_state.current_page == "feed" else "secondary"):
+                st.session_state.current_page = "feed"
+                st.rerun()
+        with btn_c2:
+            if st.button("🎬 Reels", use_container_width=True, type="primary" if st.session_state.current_page == "reels" else "secondary"):
+                st.session_state.current_page = "reels"
+                st.rerun()
+        with btn_c3:
+            if st.button("💬 Chat", use_container_width=True, type="primary" if st.session_state.current_page == "chat" else "secondary"):
+                st.session_state.current_page = "chat"
+                st.rerun()
+        with btn_c4:
+            if st.button("👤 Profile", use_container_width=True, type="primary" if st.session_state.current_page == "profile" else "secondary"):
+                st.session_state.current_page = "profile"
+                st.rerun()
+                
+    with nav_col3:
+        user_avatar_html = render_avatar(st.session_state.username, current_user["profile_pic"] if current_user else None, size=32)
+        st.markdown(f'<div style="display:flex; align-items:center; gap:8px; justify-content:flex-end;">{user_avatar_html} <b>@{st.session_state.username}</b></div>', unsafe_allow_html=True)
+        if st.button("Log out", key="btn_logout", type="secondary"):
+            st.session_state.logged_in = False
+            st.session_state.username = None
+            st.rerun()
+            
+    st.markdown("<hr style='margin-top:8px; margin-bottom:20px; border:none; border-top:1px solid rgba(255, 255, 255, 0.1);'>", unsafe_allow_html=True)
 
-    except Exception as e:
-        # Fallback view if database tables are uninitialized
-        if str(profile_username).strip().upper() == "SARAAH_ROBOTICS":
-            st.metric("Followers", "56,780")
-        else:
-            st.metric("Followers", "0")
-        st.metric("Following", "0")
-    finally:
-        if conn:
+    # -------------------------------------------------------------------------
+    # PAGE 1: HOME / FEED HUB
+    # -------------------------------------------------------------------------
+    if st.session_state.current_page == "feed":
+        col_main, col_side = st.columns([7, 3])
+        
+        with col_main:
+            # Create Post Box
+            with st.container():
+                st.markdown('<div class="feed-card">', unsafe_allow_html=True)
+                st.markdown("##### 📝 Share a Learning Update or Post")
+                post_caption = st.text_area("What are you learning today?", placeholder="Share code snippets, robotics updates, or learning notes...", key="post_text_input", height=80)
+                uploaded_file = st.file_uploader("Upload Image or Video (Optional)", type=["jpg", "jpeg", "png", "mp4"], key="post_file_input")
+                
+                if st.button("Publish Post 🚀", type="primary", key="btn_publish_post"):
+                    if post_caption or uploaded_file:
+                        conn = get_db_connection()
+                        media_bytes = uploaded_file.read() if uploaded_file else None
+                        m_type = "image"
+                        if uploaded_file and uploaded_file.name.lower().endswith(".mp4"):
+                            m_type = "video"
+                            
+                        conn.execute("""
+                        INSERT INTO reels_posts (username, caption, media_data, media_type)
+                        VALUES (?, ?, ?, ?)
+                        """, (st.session_state.username, post_caption, media_bytes, m_type))
+                        conn.commit()
+                        conn.close()
+                        st.success("Post published!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.warning("Please add a caption or media.")
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+            # Feed List
+            conn = get_db_connection()
+            posts = conn.execute("SELECT * FROM reels_posts ORDER BY timestamp DESC").fetchall()
             conn.close()
-##########################################################################################################################################################
-import time
-
-def render_live_chat(current_user):
-    st.markdown("### 💬 Direct Messages")
-    
-    db_type, conn = get_db_connection()
-    if not conn:
-        st.error("Database connection failed.")
-        return
-        
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT DISTINCT following_username FROM followers WHERE user_username = %s
-            UNION
-            SELECT DISTINCT user_username FROM followers WHERE following_username = %s
-            UNION
-            SELECT username FROM users WHERE username != %s
-        """, (current_user, current_user, current_user))
-        
-        connections = [row[0] for row in cursor.fetchall()]
-    except Exception as e:
-        cursor.execute("""
-            SELECT DISTINCT following_username FROM followers WHERE user_username = ?
-            UNION
-            SELECT DISTINCT user_username FROM followers WHERE following_username = ?
-            UNION
-            SELECT username FROM users WHERE username != ?
-        """, (current_user, current_user, current_user))
-        connections = [row[0] for row in cursor.fetchall()]
-    finally:
-        conn.close()
-
-    if not connections:
-        st.info("No other users found to chat with. Ask your friends to sign up!")
-        return
-
-    selected_chat_user = st.selectbox("Select a user to chat with:", connections)
-
-    st.markdown("---")
-
-    st.markdown("""
-        <style>
-        .chat-row { display: flex; margin-bottom: 10px; }
-        .chat-row.user { justify-content: flex-end; }
-        .chat-row.peer { justify-content: flex-start; }
-        .chat-bubble {
-            max-width: 65%;
-            padding: 10px 14px;
-            border-radius: 18px;
-            font-size: 14px;
-            line-height: 1.4;
-            word-wrap: break-word;
-        }
-        .chat-bubble.user {
-            background: linear-gradient(135deg, #a855f7, #6366f1);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-        .chat-bubble.peer {
-            background: #f1f5f9;
-            color: #1e293b;
-            border-bottom-left-radius: 4px;
-        }
-        .chat-time {
-            font-size: 10px;
-            color: #94a3b8;
-            margin-top: 2px;
-            text-align: right;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    db_type, conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT sender, receiver, message_text, timestamp FROM messages 
-            WHERE (sender = %s AND receiver = %s) OR (sender = %s AND receiver = %s)
-            ORDER BY timestamp ASC
-        """, (current_user, selected_chat_user, selected_chat_user, current_user))
-        messages = cursor.fetchall()
-    except Exception:
-        cursor.execute("""
-            SELECT sender, receiver, message_text, timestamp FROM messages 
-            WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
-            ORDER BY timestamp ASC
-        """, (current_user, selected_chat_user, selected_chat_user, current_user))
-        messages = cursor.fetchall()
-    finally:
-        conn.close()
-
-    chat_container = st.container()
-    with chat_container:
-        for sender, receiver, msg_text, timestamp in messages:
-            is_me = (sender == current_user)
-            row_class = "user" if is_me else "peer"
-            bubble_class = "user" if is_me else "peer"
-            time_str = str(timestamp).split(" ")[1][:5] if timestamp else ""
             
-            st.markdown(f"""
-                <div class="chat-row {row_class}">
-                    <div class="chat-bubble {bubble_class}">
-                        {msg_text}
-                        <div class="chat-time">{time_str}</div>
+            for post in posts:
+                post_author = get_user(post["username"])
+                author_avatar = render_avatar(post["username"], post_author["profile_pic"] if post_author else None, size=38)
+                
+                st.markdown('<div class="feed-card">', unsafe_allow_html=True)
+                st.markdown(f'''
+                <div class="card-header">
+                    {author_avatar}
+                    <div>
+                        <div class="card-username">@{post["username"]}</div>
+                        <div class="card-time">{post["timestamp"]}</div>
                     </div>
                 </div>
-            """, unsafe_allow_html=True)
+                ''', unsafe_allow_html=True)
+                
+                if post["caption"]:
+                    st.markdown(f'<p style="font-size:15px; color:#ffffff; margin-bottom:12px;">{post["caption"]}</p>', unsafe_allow_html=True)
+                    
+                if post["media_data"]:
+                    if post["media_type"] == "video":
+                        st.video(post["media_data"])
+                    else:
+                        st.image(post["media_data"], use_container_width=True)
+                elif post["media_url"]:
+                    st.image(post["media_url"], use_container_width=True)
+                    
+                col_l, col_c, col_s = st.columns([2, 2, 6])
+                with col_l:
+                    if st.button(f"❤️ {post['likes']}", key=f"like_{post['id']}"):
+                        conn = get_db_connection()
+                        conn.execute("UPDATE reels_posts SET likes = likes + 1 WHERE id = ?", (post['id'],))
+                        conn.commit()
+                        conn.close()
+                        st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
-    with st.form(key="chat_form", clear_on_submit=True):
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            new_msg = st.text_input("Message...", label_visibility="collapsed", placeholder=f"Message {selected_chat_user}...")
-        with col2:
-            send_btn = st.form_submit_button("Send")
+        with col_side:
+            st.markdown('<div class="feed-card">', unsafe_allow_html=True)
+            st.markdown("### 🤖 Saraah Robotics Hub")
+            st.markdown("""
+            Welcome to **Noob Learning**! Connect with peers, share robotics prototypes, upload reels, and exchange live messages with other learners.
             
-        if send_btn and new_msg.strip():
-            db_type, conn = get_db_connection()
-            try:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO messages (sender, receiver, message_text) 
-                    VALUES (%s, %s, %s)
-                """, (current_user, selected_chat_user, new_msg.strip()))
-                conn.commit()
-            except Exception:
-                cursor.execute("""
-                    INSERT INTO messages (sender, receiver, message_text) 
-                    VALUES (?, ?, ?)
-                """, (current_user, selected_chat_user, new_msg.strip()))
-                conn.commit()
-            finally:
-                conn.close()
-            st.rerun()
+            **Platform Features:**
+            - 🎥 **Reels Hub:** Watch and post bite-sized learning reels.
+            - 💬 **Live Chat:** Direct messaging with zero lag.
+            - 👤 **Custom Profiles:** Public/Private badges & bios.
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    time.sleep(3)
-    st.rerun()
-###########################################################################################################################################################
-def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
-    """Safely executes the profile update query with proper error handling and logging."""
-    db_type, conn = get_db_connection()
-    if not conn:
-        st.error("Database connection failed.")
-        return False
-    
-    try:
-        cursor = conn.cursor()
-        s_name = sanitize_input(new_name)
-        s_bio = sanitize_input(new_bio)
-        s_gender = sanitize_input(new_gender)
-        s_birth = sanitize_input(new_birth_date)
-        s_age = int(new_age)
+    # -------------------------------------------------------------------------
+    # PAGE 2: REELS HUB
+    # -------------------------------------------------------------------------
+    elif st.session_state.current_page == "reels":
+        reels_tab1, reels_tab2 = st.tabs(["🎬 Watch Reels", "➕ Create Reel"])
         
-        if db_type == "mysql":
-            query = """
-                UPDATE users 
-                SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s 
-                WHERE user_id = %s
-            """
-            cursor.execute(query, (s_name, s_bio, s_age, s_gender, s_birth, user_id))
-        else:
-            query = """
-                UPDATE users 
-                SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
-                WHERE user_id = ?
-            """
-            cursor.execute(query, (s_name, s_bio, s_age, s_gender, s_birth, user_id))
+        with reels_tab1:
+            conn = get_db_connection()
+            reels = conn.execute("SELECT * FROM reels_posts ORDER BY id DESC").fetchall()
+            conn.close()
             
-        conn.commit()
-        return True
-    except Exception as e:
-        st.error(f"SQL Update Failed: {e}")
-        return False
-    finally:
-        conn.close()
-######################################################################################################################################################################3
+            if reels:
+                for reel in reels:
+                    reel_author = get_user(reel["username"])
+                    author_av = render_avatar(reel["username"], reel_author["profile_pic"] if reel_author else None, size=40)
+                    
+                    st.markdown('<div class="feed-card" style="max-width:540px; margin:0 auto 24px auto;">', unsafe_allow_html=True)
+                    st.markdown(f'''
+                    <div class="card-header">
+                        {author_av}
+                        <div>
+                            <div class="card-username">@{reel["username"]}</div>
+                            <div class="card-time">{reel["timestamp"]}</div>
+                        </div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+                    if reel["media_data"]:
+                        if reel["media_type"] == "video":
+                            st.video(reel["media_data"])
+                        else:
+                            st.image(reel["media_data"], use_container_width=True)
+                    elif reel["media_url"]:
+                        st.image(reel["media_url"], use_container_width=True)
+                    else:
+                        st.info("Text Reel: " + (reel["caption"] or ""))
+                        
+                    if reel["caption"]:
+                        st.markdown(f'<p style="font-size:15px; margin-top:10px; color:#ffffff;"><b>@{reel["username"]}</b> {reel["caption"]}</p>', unsafe_allow_html=True)
+                    
+                    c1, c2 = st.columns([2, 8])
+                    with c1:
+                        if st.button(f"❤️ {reel['likes']}", key=f"reel_like_{reel['id']}"):
+                            conn = get_db_connection()
+                            conn.execute("UPDATE reels_posts SET likes = likes + 1 WHERE id = ?", (reel['id'],))
+                            conn.commit()
+                            conn.close()
+                            st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.info("No reels available yet. Create the first one!")
 
+        with reels_tab2:
+            st.markdown('<div class="feed-card" style="max-width:600px; margin:0 auto;">', unsafe_allow_html=True)
+            st.markdown("### 🎥 Create New Reel")
+            reel_cap = st.text_input("Reel Caption / Title", placeholder="Write a catchy caption...", key="reel_cap_in")
+            reel_file = st.file_uploader("Upload Video (MP4) or Image (JPG/PNG)", type=["mp4", "jpg", "jpeg", "png"], key="reel_file_in")
+            
+            if st.button("Publish Reel 🎬", type="primary", key="btn_publish_reel"):
+                if reel_file:
+                    file_bytes = reel_file.read()
+                    m_type = "video" if reel_file.name.lower().endswith(".mp4") else "image"
+                    
+                    conn = get_db_connection()
+                    conn.execute("""
+                    INSERT INTO reels_posts (username, caption, media_data, media_type)
+                    VALUES (?, ?, ?, ?)
+                    """, (st.session_state.username, reel_cap, file_bytes, m_type))
+                    conn.commit()
+                    conn.close()
+                    
+                    st.success("Reel published successfully!")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.warning("Please upload a media file for your reel.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
+    # -------------------------------------------------------------------------
+    # PAGE 3: LIVE CHAT HUB (Exact Image 2 Specification)
+    # -------------------------------------------------------------------------
+    elif st.session_state.current_page == "chat":
+        
+        # VIEW A: INBOX / SELECT CONTACT (when no active_chat_user selected)
+        if st.session_state.active_chat_user is None:
+            st.markdown("### 💬 Direct Messages")
+            st.markdown("<p style='color:rgba(255,255,255,0.6); font-size:14px;'>Select a peer or mentor to start chatting instantly.</p>", unsafe_allow_html=True)
+            
+            conn = get_db_connection()
+            all_users = conn.execute("SELECT * FROM users WHERE username != ?", (st.session_state.username,)).fetchall()
+            conn.close()
+            
+            for user_item in all_users:
+                u_avatar = render_avatar(user_item["username"], user_item["profile_pic"], size=44)
+                
+                col_u1, col_u2, col_u3 = st.columns([1, 6, 3])
+                with col_u1:
+                    st.markdown(u_avatar, unsafe_allow_html=True)
+                with col_u2:
+                    st.markdown(f"**{user_item['full_name']}** (@{user_item['username']})")
+                    st.markdown(f"<span style='font-size:12px; color:rgba(255,255,255,0.6);'>{user_item['bio'] or 'No bio provided'}</span>", unsafe_allow_html=True)
+                with col_u3:
+                    if st.button(f"Message 💬", key=f"chat_with_{user_item['username']}", type="primary"):
+                        st.session_state.active_chat_user = user_item["username"]
+                        st.rerun()
+                st.markdown("<hr style='margin:10px 0; border:none; border-top:1px solid rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
 
+        # VIEW B: ACTIVE CHAT ROOM (Strict Image 2 Design match)
+        else:
+            target_username = st.session_state.active_chat_user
+            target_user = get_user(target_username)
+            target_avatar = render_avatar(target_username, target_user["profile_pic"] if target_user else None, size=36)
+            
+            # Top Header Bar for Chat with Back Arrow
+            c_back, c_title = st.columns([1, 11])
+            with c_back:
+                if st.button("←", key="btn_chat_back", help="Back to Inbox"):
+                    st.session_state.active_chat_user = None
+                    st.rerun()
+            with c_title:
+                st.markdown(f'''
+                <div style="display:flex; align-items:center; gap:10px;">
+                    {target_avatar}
+                    <div>
+                        <div style="font-weight:700; font-size:16px; color:#ffffff;">{target_username}</div>
+                        <div style="font-size:12px; color:rgba(255,255,255,0.6); display:flex; align-items:center; gap:4px;">
+                            <span style="width:7px; height:7px; background:#22c55e; border-radius:50%; display:inline-block; box-shadow:0 0 8px rgba(34,197,94,0.6);"></span> Active Now
+                        </div>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+            st.markdown("<hr style='margin:12px 0 20px 0; border:none; border-top:1px solid rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
+            
+            # Timestamp Divider
+            st.markdown('<div style="text-align:center; color:rgba(255,255,255,0.4); font-size:12px; margin-bottom:16px;">Today 5:13 PM</div>', unsafe_allow_html=True)
+            
+            # Fetch Conversation Messages
+            conn = get_db_connection()
+            chat_messages = conn.execute("""
+            SELECT * FROM messages 
+            WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
+            ORDER BY timestamp ASC
+            """, (st.session_state.username, target_username, target_username, st.session_state.username)).fetchall()
+            conn.close()
+            
+            # Render Messages Container
+            chat_container = st.container()
+            with chat_container:
+                for msg in chat_messages:
+                    if msg["sender"] == target_username:
+                        # Received Message (Left)
+                        st.markdown(f'''
+                        <div class="chat-row-left">
+                            {target_avatar}
+                            <div class="bubble-received">
+                                {msg["message"]}
+                            </div>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        # Sent Message (Right)
+                        st.markdown(f'''
+                        <div class="chat-row-right">
+                            <div>
+                                <div class="bubble-sent">
+                                    {msg["message"]}
+                                </div>
+                                <div class="seen-indicator">Seen</div>
+                            </div>
+                        </div>
+                        ''', unsafe_allow_html=True)
 
+            # Bottom Chat Input Area (matching Image 2)
+            st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+            
+            with st.form("chat_form", clear_on_submit=True):
+                col_act, col_input, col_send = st.columns([1.5, 8, 2.5])
+                with col_act:
+                    st.markdown("<div style='font-size:22px; padding-top:6px; text-align:center;'>📷 😀 🖼️</div>", unsafe_allow_html=True)
+                with col_input:
+                    new_msg = st.text_input("Message...", placeholder="Message...", label_visibility="collapsed", key="chat_msg_input")
+                with col_send:
+                    send_submitted = st.form_submit_button("Send 🚀", type="primary", use_container_width=True)
+                    
+                if send_submitted and new_msg.strip():
+                    conn = get_db_connection()
+                    conn.execute("""
+                    INSERT INTO messages (sender, receiver, message)
+                    VALUES (?, ?, ?)
+                    """, (st.session_state.username, target_username, new_msg.strip()))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
 
-
-
-
-
+    # -------------------------------------------------------------------------
+    # PAGE 4: PROFILE & SETTINGS HUB
+    # -------------------------------------------------------------------------
+    elif st.session_state.current_page == "profile":
+        user_info = get_user(st.session_state.username)
+        
+        st.markdown('<div class="feed-card">', unsafe_allow_html=True)
+        col_p1, col_p2 = st.columns([2, 8])
+        with col_p1:
+            st.markdown(render_avatar(user_info["username"], user_info["profile_pic"], size=96), unsafe_allow_html=True)
+        with col_p2:
+            st.markdown(f"### {user_info['full_name']} (@{user_info['username']})")
+            st.markdown(f"<p style='color:rgba(255,255,255,0.6); margin-top:-10px;'><b>Account Type:</b> <span style='background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600;'>{user_info['account_type']}</span></p>", unsafe_allow_html=True)
+            st.markdown(f"**Bio:** {user_info['bio'] or 'No bio provided yet.'}")
+            
+            c_stat1, c_stat2, c_stat3 = st.columns(3)
+            c_stat1.metric("Posts / Reels", "12")
+            c_stat2.metric("Followers", "342")
+            c_stat3.metric("Following", "189")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Expandable Settings Panel
+        with st.expander("⚙️ Edit Profile Settings"):
+            with st.form("update_profile_form"):
+                new_fullname = st.text_input("Full Name", value=user_info["full_name"])
+                new_bio = st.text_area("Bio", value=user_info["bio"] or "")
+                new_age = st.number_input("Age", value=user_info["age"] or 18, min_value=10, max_value=120)
+                new_gender = st.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"], index=["Male", "Female", "Other", "Prefer not to say"].index(user_info["gender"]) if user_info["gender"] in ["Male", "Female", "Other", "Prefer not to say"] else 0)
+                new_birthdate = st.text_input("Birth Date", value=user_info["birth_date"] or "")
+                new_acct_type = st.radio("Account Privacy", ["Public", "Private"], index=0 if user_info["account_type"] == "Public" else 1)
+                new_pic_file = st.file_uploader("Change Profile Picture", type=["jpg", "jpeg", "png"])
+                
+                if st.form_submit_button("Save Profile Settings 💾", type="primary"):
+                    conn = get_db_connection()
+                    if new_pic_file:
+                        pic_bytes = new_pic_file.read()
+                        conn.execute("""
+                        UPDATE users SET full_name = ?, bio = ?, age = ?, gender = ?, birth_date = ?, account_type = ?, profile_pic = ?
+                        WHERE username = ?
+                        """, (new_fullname, new_bio, new_age, new_gender, new_birthdate, new_acct_type, pic_bytes, st.session_state.username))
+                    else:
+                        conn.execute("""
+                        UPDATE users SET full_name = ?, bio = ?, age = ?, gender = ?, birth_date = ?, account_type = ?
+                        WHERE username = ?
+                        """, (new_fullname, new_bio, new_age, new_gender, new_birthdate, new_acct_type, st.session_state.username))
+                    conn.commit()
+                    conn.close()
+                    st.success("Profile updated successfully!")
+                    time.sleep(0.5)
+                    st.rerun()
