@@ -12,7 +12,7 @@ logger = logging.getLogger("NoobLearningApp")
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Noob Learning",
+    page_title="Noob Learning Hub",
     page_icon="🎓",
     layout="centered",
     initial_sidebar_state="collapsed"
@@ -266,15 +266,15 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Top Bar actions
-col_logout, col_settings = st.columns([1, 4])
+# Top Bar actions (Log Out button)
+col_logout, col_spacer = st.columns([1, 4])
 with col_logout:
     if st.button("Log Out", key="top_logout_btn"):
         st.session_state.logged_in = False
         st.session_state.user = None
         st.rerun()
 
-# Navigation Tabs Bar
+# Navigation Tabs Bar (Rendered ONCE cleanly without duplication)
 nav_cols = st.columns(5)
 with nav_cols[0]:
     if st.button("🏠 Home", use_container_width=True, key="nav_home_btn"):
