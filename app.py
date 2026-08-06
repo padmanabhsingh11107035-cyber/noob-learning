@@ -2,6 +2,8 @@ import streamlit as st
 import sqlite3
 import datetime
 import base64
+import logging
+import sys
 
 def get_db_connection():
     """Connects to SQLite and automatically ensures the users table exists."""
@@ -9,7 +11,6 @@ def get_db_connection():
         conn = sqlite3.connect('database.db', check_same_thread=False)
         conn.row_factory = sqlite3.Row
         
-        # Create table immediately upon connection so queries never fail
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -37,7 +38,6 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
     try:
         cursor = conn.cursor()
         
-        # Check existing columns to prevent missing column errors
         cursor.execute("PRAGMA table_info(users)")
         existing_cols = [row[1] for row in cursor.fetchall()]
         
@@ -99,6 +99,9 @@ if conn:
 
 if not profile_user:
     profile_user = user
+
+# Safe logging setup if needed later in your script
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 ########################################################################################################################
 # FORM WRAPPER WITH CORRECT ALIGNED INDENTATION
