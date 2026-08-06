@@ -172,9 +172,11 @@ if 'nav_option' not in st.session_state:
     st.session_state.nav_option = "Feed"
 if 'active_chat_user' not in st.session_state:
     st.session_state.active_chat_user = None
+if 'show_edit_profile' not in st.session_state:
+    st.session_state.show_edit_profile = False
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME (Guaranteed Button Text Visibility & Contrast)
+# 2. PREMIUM CUSTOM CSS THEME (Guaranteed Button Visibility & Contrast)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -207,7 +209,7 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
     }
 
-    /* Force button background, border, and text to be fully visible with high-contrast black text */
+    /* Force button styling with high-contrast text */
     div.stButton > button, button[kind="secondary"], button[kind="primary"], [data-testid="baseButton-secondary"], [data-testid="baseButton-primary"] {
         background: #00E676 !important;
         background-color: #00E676 !important;
@@ -356,6 +358,7 @@ if not st.session_state.logged_in:
 # ==============================================================================
 user = st.session_state.user
 username = user['username']
+user_id = user.get('user_id', 'N/A')
 first_letter = username[0].upper()
 
 header_col1, header_col2, header_col3, header_col4, header_col5, header_col_profile = st.columns([2.5, 1, 1, 1, 1, 1.8])
@@ -372,20 +375,24 @@ with header_col2:
     if st.button("🏠 Feed", use_container_width=True):
         st.session_state.nav_option = "Feed"
         st.session_state.active_chat_user = None
+        st.session_state.show_edit_profile = False
         st.rerun()
 with header_col3:
     if st.button("🎬 Reels", use_container_width=True):
         st.session_state.nav_option = "Reels"
         st.session_state.active_chat_user = None
+        st.session_state.show_edit_profile = False
         st.rerun()
 with header_col4:
     if st.button("💬 Chat", use_container_width=True):
         st.session_state.nav_option = "Chat"
+        st.session_state.show_edit_profile = False
         st.rerun()
 with header_col5:
     if st.button("👤 Profile", use_container_width=True):
         st.session_state.nav_option = "Profile"
         st.session_state.active_chat_user = None
+        st.session_state.show_edit_profile = False
         st.rerun()
 
 with header_col_profile:
@@ -660,7 +667,7 @@ elif current_tab == "Chat":
                 st.rerun()
 
 # ==============================================================================
-# TAB 4: PROFILE SECTION
+# TAB 4: PROFILE SECTION (WITH SETTINGS ICON / EDIT TOGGLE)
 # ==============================================================================
 elif current_tab == "Profile":
     conn = get_db_connection()
@@ -689,21 +696,46 @@ elif current_tab == "Profile":
     else:
         avatar_display_html = f"<div style='background-color: #00C853; color: #0e1117; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;'>{first_letter}</div>"
 
-    st.markdown(f"""
-        <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
-            <div style="display: flex; align-items: center; gap: 20px;">
-                {avatar_display_html}
-                <div>
-                    <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
-                    <p style="color: #00C853; font-weight: 500; margin: 2px 0;">Account Type: {user.get('account_type', 'Public')} | Gender: {user.get('gender', 'N/A')} | DOB: {user.get('birth_date', 'N/A')}</p>
-                    <p style="color: #ccc; margin: 5px 0 0 0;">{user.get('bio') or 'No bio added yet.'}</p>
+    # Profile banner with name, ID, and setting icon button placed inside the header card area
+    col_p_info, col_p_setting = st.columns([5, 1])
+    
+    with col_p_info:
+        st.markdown(f"""
+            <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d; height: 100%;">
+                <div style="display: flex; align-items: center; gap: 20px;">
+                    {avatar_display_html}
+                    <div>
+                        <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
+                        <p style="color: #00C853; font-weight: 600; margin: 4px 0; font-size: 14px;">
+                            🆔 User ID: {user.get('user_id', 'N/A')} &nbsp;|&nbsp; 
+                            🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp; 
+                            ⚧ Gender: {user.get('gender', 'N/A')} &nbsp;|&nbsp; 
+                            📅 DOB: {user.get('birth_date', 'N/A')}
+                        </p>
+                        <p style="color: #ccc; margin: 8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
+                    </div>
                 </div>
             </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    with st.expander("⚙️ Edit Profile Settings", expanded=True):
-        st.markdown("<p style='color: #8b949e; font-size: 0.9rem;'>Update your profile information below. Unchanged fields will automatically retain your current data.</p>", unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        
+    with col_p_setting:
+        st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True)
+        # Settings Icon button that toggles the profile updation form
+        if st.button("⚙️", key="profile_settings_icon_btn", help="Edit Profile Settings"):
+            st.session_state.show_edit_profile = not st.session_state.show_edit_profile
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Conditional display of the profile update settings form based on setting icon click
+    if st.session_state.show_edit_profile:
+        st.markdown("""
+            <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #00C853; margin-bottom: 20px;">
+                <h3 style="margin-top: 0; color: #00C853;">⚙️ Edit Profile Settings</h3>
+                <p style='color: #8b949e; font-size: 0.9rem;'>Update your profile information below. Unchanged fields will automatically retain your current data.</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
         with st.form("edit_profile"):
             new_full = st.text_input("👤 Full Name", value=user.get('full_name', ''))
             
@@ -736,6 +768,7 @@ elif current_tab == "Profile":
                     final_pic_base64 = f"data:image/{file_extension};base64,{encoded}"
                 
                 update_user_profile(username, new_full, new_bio, final_pic_base64, new_gender, new_dob, new_acc_type, new_pass)
+                st.session_state.show_edit_profile = False
                 st.success("Profile updated successfully!")
                 st.rerun()
 
