@@ -138,7 +138,7 @@ def get_user_stats(username):
     return followers_count, following_count
 
 # ==============================================================================
-# USER REGISTRATION & PROFILE UPDATE LOGIC
+# USER REGISTRATION & PROFILE UPDATE LOGIC (HANDLES USERNAME CHANGE)
 # ==============================================================================
 def register_user(username, password, full_name, bio, profile_pic, gender, birth_date, account_type):
     conn = get_db_connection()
@@ -151,8 +151,10 @@ def register_user(username, password, full_name, bio, profile_pic, gender, birth
         conn.commit()
         conn.close()
 
-def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_gender, new_birth_date, new_account_type, new_password):
+def update_user_profile(old_username, new_username, new_full_name, new_bio, new_profile_pic, new_gender, new_birth_date, new_account_type, new_password):
     conn = get_db_connection()
+    success = False
+    error_msg = ""
     if conn:
         cursor = conn.cursor()
         
@@ -166,11 +168,20 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
                     pass
         conn.commit()
 
-        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT * FROM users WHERE username = ?", (old_username,))
         existing_user = cursor.fetchone()
         
         if existing_user:
             existing_dict = dict(existing_user)
+            target_username = new_username.strip().lower() if new_username and new_username.strip() else old_username
+            
+            # Check if username is changing and if the new username already exists
+            if target_username != old_username:
+                cursor.execute("SELECT 1 FROM users WHERE username = ?", (target_username,))
+                if cursor.fetchone():
+                    conn.close()
+                    return False, "Username already taken!"
+
             final_full_name = new_full_name if new_full_name and new_full_name.strip() else existing_dict.get('full_name', '')
             final_bio = new_bio if new_bio and new_bio.strip() else existing_dict.get('bio', '')
             final_profile_pic = new_profile_pic if new_profile_pic is not None and new_profile_pic != '' else existing_dict.get('profile_pic', '')
@@ -179,14 +190,31 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
             final_account_type = new_account_type if new_account_type and new_account_type.strip() else existing_dict.get('account_type', 'Public')
             final_password = new_password if new_password and new_password.strip() else existing_dict.get('password', '')
             
-            cursor.execute("""
-                UPDATE users 
-                SET full_name = ?, bio = ?, profile_pic = ?, gender = ?, birth_date = ?, account_type = ?, password = ?
-                WHERE username = ?
-            """, (final_full_name, final_bio, final_profile_pic, final_gender, final_birth_date, final_account_type, final_password, username))
-            
-            conn.commit()
+            try:
+                # Update user table with new username and fields
+                cursor.execute("""
+                    UPDATE users 
+                    SET username = ?, full_name = ?, bio = ?, profile_pic = ?, gender = ?, birth_date = ?, account_type = ?, password = ?
+                    WHERE username = ?
+                """, (target_username, final_full_name, final_bio, final_profile_pic, final_gender, final_birth_date, final_account_type, final_password, old_username))
+                
+                # Update cascading tables if username changed
+                if target_username != old_username:
+                    cursor.execute("UPDATE reels_posts SET username = ? WHERE username = ?", (target_username, old_username))
+                    cursor.execute("UPDATE messages SET sender = ? WHERE sender = ?", (target_username, old_username))
+                    cursor.execute("UPDATE messages SET receiver = ? WHERE receiver = ?", (target_username, old_username))
+                    cursor.execute("UPDATE follows SET follower = ? WHERE follower = ?", (target_username, old_username))
+                    cursor.execute("UPDATE follows SET following = ? WHERE following = ?", (target_username, old_username))
+
+                conn.commit()
+                success = True
+            except sqlite3.IntegrityError as e:
+                error_msg = str(e)
+            except Exception as e:
+                error_msg = str(e)
+                
         conn.close()
+    return success, error_msg
 
 # --- SESSION STATE ---
 if 'logged_in' not in st.session_state:
@@ -412,6 +440,7 @@ with header_col3:
 with header_col4:
     if st.button("💬 Chat", use_container_width=True):
         st.session_state.nav_option = "Chat"
+        st.session_state.active_chat_user = None
         st.session_state.show_edit_profile = False
         st.rerun()
 with header_col5:
@@ -725,7 +754,7 @@ elif current_tab == "Chat":
                 st.rerun()
 
 # ==============================================================================
-# TAB 4: PROFILE SECTION (ORIGINAL FOLLOWERS & FOLLOWING COUNTS FROM DB)
+# TAB 4: PROFILE SECTION (EDIT USERNAME & ORIGINAL FOLLOWERS)
 # ==============================================================================
 elif current_tab == "Profile":
     conn = get_db_connection()
@@ -748,7 +777,6 @@ elif current_tab == "Profile":
             st.session_state.user = user
         conn.close()
 
-    # Fetch original follower and following counts directly from database table
     followers_num, following_num = get_user_stats(username)
 
     current_pic_data = user.get('profile_pic')
@@ -757,7 +785,7 @@ elif current_tab == "Profile":
     else:
         avatar_display_html = f"<div style='background-color: #00C853; color: #0e1117; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;'>{first_letter}</div>"
 
-    # Profile card container with 3 columns layout: Details, Original Followers/Following Stats, Settings Icon
+    # Profile card container with 3 columns layout: Details, Followers/Following Stats, Settings Icon
     st.markdown("""
         <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
     """, unsafe_allow_html=True)
@@ -782,7 +810,6 @@ elif current_tab == "Profile":
         """, unsafe_allow_html=True)
         
     with card_col_stats:
-        # Original Followers & Following placed parallel in the empty space
         st.markdown(f"""
             <div style="display: flex; justify-content: space-around; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 10px; height: 100%; margin-top: 5px;">
                 <div style="text-align: center;">
@@ -808,16 +835,17 @@ elif current_tab == "Profile":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Conditional display of the profile update settings form based on setting icon click
+    # Edit profile settings form including editable Username
     if st.session_state.show_edit_profile:
         st.markdown("""
             <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #00C853; margin-bottom: 20px;">
                 <h3 style="margin-top: 0; color: #00C853;">⚙️ Edit Profile Settings</h3>
-                <p style='color: #8b949e; font-size: 0.9rem;'>Update your profile information below. Unchanged fields will automatically retain your current data.</p>
+                <p style='color: #8b949e; font-size: 0.9rem;'>Update your profile information and username below.</p>
             </div>
         """, unsafe_allow_html=True)
         
         with st.form("edit_profile"):
+            new_username_input = st.text_input("🏷️ Username", value=username)
             new_full = st.text_input("👤 Full Name", value=user.get('full_name', ''))
             
             gender_options = ["Male", "Female", "Other"]
@@ -846,12 +874,35 @@ elif current_tab == "Profile":
                     bytes_data = uploaded_pic_file.getvalue()
                     encoded = base64.b64encode(bytes_data).decode()
                     file_extension = uploaded_pic_file.type.split('/')[-1]
-                    final_pic_file_base64 = f"data:image/{file_extension};base64,{encoded}"
-                    final_pic_base64 = final_pic_file_base64
+                    final_pic_base64 = f"data:image/{file_extension};base64,{encoded}"
                 
-                update_user_profile(username, new_full, new_bio, final_pic_base64, new_gender, new_dob, new_acc_type, new_pass)
-                st.session_state.show_edit_profile = False
-                st.success("Profile updated successfully!")
-                st.rerun()
+                updated_ok, err_msg = update_user_profile(
+                    username, 
+                    new_username_input, 
+                    new_full, 
+                    new_bio, 
+                    final_pic_base64, 
+                    new_gender, 
+                    new_dob, 
+                    new_acc_type, 
+                    new_pass
+                )
+                
+                if updated_ok:
+                    # Refresh session state user dictionary with new username
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT * FROM users WHERE username = ?", (new_username_input.strip().lower(),))
+                        updated_row = cursor.fetchone()
+                        if updated_row:
+                            st.session_state.user = dict(updated_row)
+                        conn.close()
+                    
+                    st.session_state.show_edit_profile = False
+                    st.success("Profile and username updated successfully!")
+                    st.rerun()
+                else:
+                    st.error(f"Failed to update profile: {err_msg or 'Username might already be taken.'}")
 
 st.markdown("<p style='text-align: center; color: #555; font-size: 0.7rem; letter-spacing: 2px; margin-top: 5rem;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
