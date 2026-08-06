@@ -4,26 +4,13 @@ import datetime
 import base64
 
 def get_db_connection():
-    """Connects to a local SQLite database, creating it automatically if it doesn't exist."""
+    """Connects to SQLite and automatically ensures the users table exists."""
     try:
         conn = sqlite3.connect('database.db', check_same_thread=False)
-        conn.row_factory = sqlite3.Row  # Enables column access by name
-        return "sqlite", conn
-    except Exception as e:
-        st.error(f"Database connection error: {e}")
-        return None, None
-
-def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
-    """Ensures profile columns exist in the SQLite database, then updates them successfully."""
-    db_type, conn = get_db_connection()
-    if not conn:
-        st.error("Database connection failed.")
-        return False
-    
-    try:
-        cursor = conn.cursor()
+        conn.row_factory = sqlite3.Row
         
-        # Ensure the users table exists
+        # Create table immediately upon connection so queries never fail
+        cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -35,8 +22,22 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
                 profile_pic BLOB
             )
         """)
+        conn.commit()
+        return "sqlite", conn
+    except Exception as e:
+        st.error(f"Database connection error: {e}")
+        return None, None
+
+def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
+    db_type, conn = get_db_connection()
+    if not conn:
+        st.error("Database connection failed.")
+        return False
+    
+    try:
+        cursor = conn.cursor()
         
-        # Check existing columns to avoid missing column errors
+        # Check existing columns to prevent missing column errors
         cursor.execute("PRAGMA table_info(users)")
         existing_cols = [row[1] for row in cursor.fetchall()]
         
@@ -53,7 +54,6 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
         if 'profile_pic' not in existing_cols:
             cursor.execute("ALTER TABLE users ADD COLUMN profile_pic BLOB")
             
-        # Update user profile query
         query = """
             UPDATE users 
             SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
@@ -61,7 +61,6 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
         """
         cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
         
-        # If user didn't exist yet, insert them
         if cursor.rowcount == 0:
             insert_query = """
                 INSERT INTO users (user_id, name, bio, age, gender, birth_date)
