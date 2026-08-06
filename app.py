@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 1. DATABASE SETUP & CONNECTION
+# 1. DATABASE SETUP & CONNECTION (ROBUST MIGRATION)
 # ==============================================================================
 def get_db_connection():
     try:
@@ -48,17 +48,27 @@ def init_db():
                 profile_pic TEXT
             )
         """)
-        # Ensure all required columns exist with safe migration checks
+        # Ensure all required columns exist
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
-        if 'gender' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
-        if 'birth_date' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
-        if 'account_type' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
-        if 'profile_pic' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
+        
+        required_columns = {
+            'gender': 'TEXT',
+            'birth_date': 'TEXT',
+            'account_type': 'TEXT DEFAULT "Public"',
+            'profile_pic': 'TEXT',
+            'full_name': 'TEXT',
+            'bio': 'TEXT',
+            'age': 'INTEGER',
+            'password': 'TEXT'
+        }
+        
+        for col_name, col_type in required_columns.items():
+            if col_name not in columns:
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                except Exception as ex:
+                    logger.warning(f"Could not add column {col_name}: {ex}")
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS reels_posts (
@@ -100,7 +110,7 @@ def get_current_ist_time():
     return datetime.datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S")
 
 # ==============================================================================
-# USER REGISTRATION & PROFILE UPDATE LOGIC WITH ROBUST SCHEMA VERIFICATION
+# USER REGISTRATION & PROFILE UPDATE LOGIC
 # ==============================================================================
 def register_user(username, password, full_name, bio, profile_pic, gender, birth_date, account_type):
     conn = get_db_connection()
@@ -118,17 +128,15 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
     if conn:
         cursor = conn.cursor()
         
-        # Dynamically verify all columns exist and add them if missing
+        # Verify columns before update
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
-        if 'gender' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
-        if 'birth_date' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
-        if 'account_type' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
-        if 'profile_pic' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
+        for col in ['gender', 'birth_date', 'account_type', 'profile_pic', 'full_name', 'bio']:
+            if col not in columns:
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+                except Exception:
+                    pass
         conn.commit()
 
         cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
@@ -166,7 +174,7 @@ if 'active_chat_user' not in st.session_state:
     st.session_state.active_chat_user = None
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME (Visibility & Button Text Fixes)
+# 2. PREMIUM CUSTOM CSS THEME (Guaranteed Button Text Visibility & Contrast)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -199,32 +207,34 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
     }
 
-    /* Force button text, color, and background to be fully visible at all times without hover requirement */
-    div.stButton > button {
-        background: linear-gradient(135deg, #00E676 0%, #00C853 100%) !important;
-        color: #0b0f19 !important;
-        -webkit-text-fill-color: #0b0f19 !important;
-        font-weight: 800 !important;
+    /* Force button background, border, and text to be fully visible with high-contrast black text */
+    div.stButton > button, button[kind="secondary"], button[kind="primary"], [data-testid="baseButton-secondary"], [data-testid="baseButton-primary"] {
+        background: #00E676 !important;
+        background-color: #00E676 !important;
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+        font-weight: 900 !important;
+        font-size: 15px !important;
         border: 2px solid #00FF88 !important;
         border-radius: 8px !important;
         padding: 0.6rem 1.2rem !important;
         box-shadow: 0 4px 15px rgba(0, 230, 118, 0.4) !important;
         opacity: 1 !important;
         visibility: visible !important;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
     
-    div.stButton > button p, div.stButton > button span {
-        color: #0b0f19 !important;
-        -webkit-text-fill-color: #0b0f19 !important;
-        font-weight: 800 !important;
+    div.stButton > button *, button[kind="secondary"] *, button[kind="primary"] * {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+        font-weight: 900 !important;
     }
 
-    div.stButton > button:hover {
+    div.stButton > button:hover, button[kind="secondary"]:hover, button[kind="primary"]:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 22px rgba(0, 230, 118, 0.6) !important;
-        background: linear-gradient(135deg, #69F0AE 0%, #00E676 100%) !important;
-        color: #0b0f19 !important;
+        box-shadow: 0 6px 22px rgba(0, 230, 118, 0.7) !important;
+        background: #69F0AE !important;
+        background-color: #69F0AE !important;
+        color: #000000 !important;
     }
     
     input, textarea, select {
@@ -234,7 +244,6 @@ st.markdown("""
         border-radius: 8px !important;
     }
 
-    /* Force all form input labels to be clearly readable and prominent */
     .stTextInput label, .stSelectbox label, .stTextArea label, .stFileUploader label {
         color: #ffffff !important;
         font-weight: 700 !important;
@@ -657,18 +666,14 @@ elif current_tab == "Profile":
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
-        
-        # Verify table schema safely before querying profile
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
-        if 'gender' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
-        if 'birth_date' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
-        if 'account_type' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
-        if 'profile_pic' not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
+        for col in ['gender', 'birth_date', 'account_type', 'profile_pic']:
+            if col not in columns:
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+                except Exception:
+                    pass
         conn.commit()
 
         cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
