@@ -48,7 +48,6 @@ def init_db():
                 profile_pic TEXT
             )
         """)
-        # Ensure all required columns exist
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
         
@@ -70,7 +69,6 @@ def init_db():
                 except Exception as ex:
                     logger.warning(f"Could not add column {col_name}: {ex}")
 
-        # Followers table for true original count (0 if no followers)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS follows (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,9 +135,6 @@ def get_user_stats(username):
         conn.close()
     return followers_count, following_count
 
-# ==============================================================================
-# USER REGISTRATION & PROFILE UPDATE LOGIC (HANDLES USERNAME CHANGE)
-# ==============================================================================
 def register_user(username, password, full_name, bio, profile_pic, gender, birth_date, account_type):
     conn = get_db_connection()
     if conn:
@@ -175,7 +170,6 @@ def update_user_profile(old_username, new_username, new_full_name, new_bio, new_
             existing_dict = dict(existing_user)
             target_username = new_username.strip().lower() if new_username and new_username.strip() else old_username
             
-            # Check if username is changing and if the new username already exists
             if target_username != old_username:
                 cursor.execute("SELECT 1 FROM users WHERE username = ?", (target_username,))
                 if cursor.fetchone():
@@ -191,14 +185,12 @@ def update_user_profile(old_username, new_username, new_full_name, new_bio, new_
             final_password = new_password if new_password and new_password.strip() else existing_dict.get('password', '')
             
             try:
-                # Update user table with new username and fields
                 cursor.execute("""
                     UPDATE users 
                     SET username = ?, full_name = ?, bio = ?, profile_pic = ?, gender = ?, birth_date = ?, account_type = ?, password = ?
                     WHERE username = ?
                 """, (target_username, final_full_name, final_bio, final_profile_pic, final_gender, final_birth_date, final_account_type, final_password, old_username))
                 
-                # Update cascading tables if username changed
                 if target_username != old_username:
                     cursor.execute("UPDATE reels_posts SET username = ? WHERE username = ?", (target_username, old_username))
                     cursor.execute("UPDATE messages SET sender = ? WHERE sender = ?", (target_username, old_username))
@@ -231,7 +223,7 @@ if 'show_edit_profile' not in st.session_state:
     st.session_state.show_edit_profile = False
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME (Guaranteed Button Visibility & Contrast)
+# 2. PREMIUM CUSTOM CSS THEME
 # ==============================================================================
 st.markdown("""
 <style>
@@ -309,7 +301,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 3. PREMIUM BOX AUTHENTICATION SCREEN
+# 3. AUTHENTICATION SCREEN
 # ==============================================================================
 if not st.session_state.logged_in:
     _, center_col, _ = st.columns([1, 1.2, 1])
@@ -343,20 +335,6 @@ if not st.session_state.logged_in:
                             st.rerun()
                         else:
                             st.error("Invalid username or password.")
-            
-            st.markdown("""
-                <div style="display: flex; align-items: center; text-align: center; margin: 20px 0; color: #8b949e; font-size: 13px;">
-                    <div style="flex: 1; border-bottom: 1px solid rgba(255,255,255,0.1);"></div>
-                    <div style="padding: 0 15px; font-weight: 600; font-size: 11px; letter-spacing: 1px;">OR</div>
-                    <div style="flex: 1; border-bottom: 1px solid rgba(255,255,255,0.1);"></div>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("""
-                <div style="text-align: center; margin-top: 15px;">
-                    <a href="#" style="color: #58a6ff; text-decoration: none; font-size: 13px;">Forgot password?</a>
-                </div>
-            """, unsafe_allow_html=True)
             
             st.markdown("</div>", unsafe_allow_html=True)
             
@@ -408,7 +386,7 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ==============================================================================
-# 4. MAIN APP DASHBOARD & TOP NAVIGATION BAR
+# 4. MAIN APP DASHBOARD & NAVIGATION BAR
 # ==============================================================================
 user = st.session_state.user
 username = user['username']
@@ -548,7 +526,7 @@ if current_tab == "Feed":
         """, unsafe_allow_html=True)
 
 # ==============================================================================
-# TAB 2: REELS SECTION
+# TAB 2: REELS
 # ==============================================================================
 elif current_tab == "Reels":
     st.markdown("### 🎬 Reels Hub")
@@ -612,7 +590,7 @@ elif current_tab == "Reels":
                     st.warning("Please add a caption for your reel.")
 
 # ==============================================================================
-# TAB 3: CHAT & USER SEARCH SECTION (WHATSAPP STYLE LIVE CHAT)
+# TAB 3: CHAT & USER SEARCH SECTION (CLEAN STREAMLIT NATIVE CHAT)
 # ==============================================================================
 elif current_tab == "Chat":
     conn = get_db_connection()
@@ -654,7 +632,6 @@ elif current_tab == "Chat":
             profile_pic = p_dict.get('profile_pic')
             acc_type = p_dict.get('account_type', 'Public')
             
-            # Check follow status
             conn = get_db_connection()
             is_following = False
             if conn:
@@ -715,7 +692,6 @@ elif current_tab == "Chat":
     else:
         peer_name = st.session_state.active_chat_user
         
-        # WhatsApp-style chat interface header & container
         c_back, c_title = st.columns([1, 6])
         with c_back:
             if st.button("⬅ Back"):
@@ -726,53 +702,6 @@ elif current_tab == "Chat":
             
         st.markdown("<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>", unsafe_allow_html=True)
         
-        # WhatsApp style chat window wrapper
-        st.markdown("""
-        <style>
-            .whatsapp-box {
-                background-color: #0b141a;
-                background-image: radial-gradient(#111b21 9%, transparent 9%), radial-gradient(#111b21 9%, transparent 9%);
-                background-size: 20px 20px;
-                background-position: 0 0, 10px 10px;
-                border: 1px solid #30363d;
-                border-radius: 12px;
-                padding: 15px;
-                height: 420px;
-                overflow-y: scroll;
-                display: flex;
-                flex-direction: column;
-            }
-            .msg-bubble-sent {
-                background: #005c4b;
-                color: #e9edef;
-                padding: 8px 14px;
-                border-radius: 8px 0px 8px 8px;
-                max-width: 70%;
-                margin: 4px 0 4px auto;
-                word-wrap: break-word;
-                box-shadow: 0 1px 0.5px rgba(0,0,0,0.3);
-                font-size: 14px;
-            }
-            .msg-bubble-recv {
-                background: #202c33;
-                color: #e9edef;
-                padding: 8px 14px;
-                border-radius: 0px 8px 8px 8px;
-                max-width: 70%;
-                margin: 4px auto 4px 0;
-                word-wrap: break-word;
-                box-shadow: 0 1px 0.5px rgba(0,0,0,0.3);
-                font-size: 14px;
-            }
-            .msg-time {
-                font-size: 10px;
-                color: #8696a0;
-                text-align: right;
-                margin-top: 2px;
-            }
-        </style>
-        """, unsafe_allow_html=True)
-
         conn = get_db_connection()
         messages = []
         if conn:
@@ -785,40 +714,30 @@ elif current_tab == "Chat":
             messages = cursor.fetchall()
             conn.close()
 
-        # Render chat messages inside a scrollable container
-        chat_html = "<div class='whatsapp-box'>"
-        for msg in messages:
-            m = dict(msg)
-            t_str = m.get('timestamp', '')
-            time_only = t_str.split(' ')[1][:5] if ' ' in t_str else t_str
-            
-            if m['sender'] == username:
-                chat_html += f"""
-                    <div style="display: flex; flex-direction: column;">
-                        <div class="msg-bubble-sent">
-                            {m['message']}
-                            <div class="msg-time">{time_only} ✓✓</div>
-                        </div>
-                    </div>
-                """
-            else:
-                chat_html += f"""
-                    <div style="display: flex; flex-direction: column;">
-                        <div class="msg-bubble-recv">
-                            {m['message']}
-                            <div class="msg-time">{time_only}</div>
-                        </div>
-                    </div>
-                """
-        chat_html += "</div>"
-        st.markdown(chat_html, unsafe_allow_html=True)
+        # FIXED: Utilizing Streamlit's native chat interface containers (`st.chat_message`) 
+        # instead of raw unrendered HTML string tags so messages render properly as a live chat.
+        chat_container = st.container(height=420)
+        with chat_container:
+            if not messages:
+                st.info(f"No messages yet with @{peer_name}. Say hello!")
+            for msg in messages:
+                m = dict(msg)
+                t_str = m.get('timestamp', '')
+                time_only = t_str.split(' ')[1][:5] if ' ' in t_str else t_str
+                
+                if m['sender'] == username:
+                    with st.chat_message("user"):
+                        st.write(m['message'])
+                        st.caption(f"{time_only} ✓✓")
+                else:
+                    with st.chat_message("assistant", avatar="🤖"):
+                        st.write(m['message'])
+                        st.caption(time_only)
         
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # WhatsApp-style input form at the bottom
         with st.form(key="whatsapp_chat_form", clear_on_submit=True):
-            cols_input = [5, 1]
-            c_txt, c_btn = st.columns(cols_input)
+            c_txt, c_btn = st.columns([5, 1])
             with c_txt:
                 msg_input = st.text_input("Type a message", placeholder=f"Message @{peer_name}...", label_visibility="collapsed")
             with c_btn:
@@ -837,7 +756,7 @@ elif current_tab == "Chat":
                     st.rerun()
 
 # ==============================================================================
-# TAB 4: PROFILE SECTION (EDIT USERNAME & ORIGINAL FOLLOWERS)
+# TAB 4: PROFILE SECTION
 # ==============================================================================
 elif current_tab == "Profile":
     conn = get_db_connection()
@@ -868,7 +787,6 @@ elif current_tab == "Profile":
     else:
         avatar_display_html = f"<div style='background-color: #00C853; color: #0e1117; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;'>{first_letter}</div>"
 
-    # Profile card container with 3 columns layout: Details, Followers/Following Stats, Settings Icon
     st.markdown("""
         <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
     """, unsafe_allow_html=True)
@@ -915,10 +833,8 @@ elif current_tab == "Profile":
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
-
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Edit profile settings form including editable Username
     if st.session_state.show_edit_profile:
         st.markdown("""
             <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #00C853; margin-bottom: 20px;">
