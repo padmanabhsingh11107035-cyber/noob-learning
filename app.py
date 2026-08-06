@@ -14,7 +14,9 @@ def get_db_connection():
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
+                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE,
+                password TEXT,
                 name TEXT,
                 bio TEXT,
                 age INTEGER,
@@ -37,7 +39,6 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
     
     try:
         cursor = conn.cursor()
-        
         cursor.execute("PRAGMA table_info(users)")
         existing_cols = [row[1] for row in cursor.fetchall()]
         
@@ -60,14 +61,6 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
             WHERE user_id = ?
         """
         cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
-        
-        if cursor.rowcount == 0:
-            insert_query = """
-                INSERT INTO users (user_id, name, bio, age, gender, birth_date)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """
-            cursor.execute(insert_query, (user_id, new_name, new_bio, int(new_age), new_gender, new_birth_date))
-            
         conn.commit()
         return True
     except Exception as e:
@@ -76,14 +69,70 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
     finally:
         conn.close()
 
-# Session state setup
+# Initialize session state for authentication
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
 if 'user' not in st.session_state:
-    st.session_state.user = {'user_id': 1, 'name': 'Padmanabh', 'bio': 'Welcome to NOOB LEARNING!'}
-if 'viewing_profile_id' not in st.session_state:
-    st.session_state.viewing_profile_id = 1
+    st.session_state.user = None
 
+# --- LOGIN / SIGNUP SCREEN ---
+if not st.session_state.logged_in:
+    st.title("🔐 Welcome to Noob Learning")
+    st.write("Please log in or sign up to continue.")
+    
+    auth_mode = st.radio("Choose Mode", ["Login", "Sign Up"], horizontal=True)
+    
+    db_type, conn = get_db_connection()
+    
+    if auth_mode == "Sign Up":
+        with st.form("signup_form"):
+            new_user = st.text_input("Choose Username")
+            new_pass = st.text_input("Choose Password", type="password")
+            signup_btn = st.form_submit_button("Create Account")
+            
+            if signup_btn:
+                if new_user and new_pass:
+                    try:
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (?, ?, ?, ?)", 
+                                       (new_user, new_pass, new_user, "Welcome to Noob Learning!"))
+                        conn.commit()
+                        st.success("Account created successfully! Please switch to Login.")
+                    except sqlite3.IntegrityError:
+                        st.error("Username already exists. Choose another one.")
+                    finally:
+                        conn.close()
+                else:
+                    st.warning("Please fill in all fields.")
+                    
+    else:  # Login Mode
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            login_btn = st.form_submit_button("Login")
+            
+            if login_btn:
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+                    user_row = cursor.fetchone()
+                    conn.close()
+                    
+                    if user_row:
+                        st.session_state.logged_in = True
+                        st.session_state.user = dict(user_row)
+                        st.success("Logged in successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password.")
+                else:
+                    st.error("Database connection failed.")
+                    
+    st.stop()  # Stop execution here so the rest of the app doesn't show until logged in
+
+# --- MAIN APP (Only runs after successful login) ---
 user = st.session_state.user
-profile_id = st.session_state.viewing_profile_id
+profile_id = user.get('user_id')
 
 db_type, conn = get_db_connection()
 profile_user = None
@@ -100,8 +149,11 @@ if conn:
 if not profile_user:
     profile_user = user
 
-# Safe logging setup if needed later in your script
-logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+st.title("Noob Learning Hub")
+if st.button("Log Out"):
+    st.session_state.logged_in = False
+    st.session_state.user = None
+    st.rerun()
 
 ########################################################################################################################
 # FORM WRAPPER WITH CORRECT ALIGNED INDENTATION
@@ -129,11 +181,11 @@ if profile_user.get('user_id') == user.get('user_id'):
                     st.error(f"Error updating profile picture: {img_err}")
 
         with st.form("edit_profile_form"):
-            current_name_val = profile_user.get('name') or user.get('name', '') or ''
+            current_name_val = profile_user.get('name') or user.get('username', '') or ''
             new_name = st.text_input("Name", value=current_name_val, key="edit_name_input")
-            new_bio = st.text_area("Bio", value=profile_user.get('bio', '') or user.get('bio', '') or '', key="edit_bio_input")
+            new_bio = st.text_area("Bio", value=profile_user.get('bio', '') or '', key="edit_bio_input")
             
-            default_age = profile_user.get('age') or user.get('age') or 18
+            default_age = profile_user.get('age') or 18
             try:
                 default_age = int(default_age)
             except:
@@ -141,11 +193,11 @@ if profile_user.get('user_id') == user.get('user_id'):
             new_age = st.number_input("Age", min_value=1, max_value=120, value=default_age, key="edit_age_input")
             
             gender_options = ["Male", "Female", "Other", "Prefer not to say"]
-            current_gender = profile_user.get('gender') or user.get('gender')
+            current_gender = profile_user.get('gender')
             gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
             new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
             
-            current_birth = profile_user.get('birth_date') or user.get('birth_date') or ''
+            current_birth = profile_user.get('birth_date') or ''
             clean_birth = "".join(filter(str.isdigit, str(current_birth)))
             if len(clean_birth) == 8:
                 formatted_default = f"{clean_birth[:2]}/{clean_birth[2:4]}/{clean_birth[4:]}"
@@ -170,7 +222,6 @@ if profile_user.get('user_id') == user.get('user_id'):
                 )
                 if success:
                     user['name'] = new_name
-                    user['full_name'] = new_name
                     user['bio'] = new_bio
                     user['age'] = new_age
                     user['gender'] = new_gender
