@@ -6,7 +6,7 @@ import logging
 import sys
 
 # Page config
-st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
+st.set_page_config(page_title="Noob Learning", page_icon="😊", layout="centered")
 
 def get_db_connection():
     """Connects to SQLite and automatically ensures the users table exists."""
