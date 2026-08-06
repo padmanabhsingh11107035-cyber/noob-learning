@@ -128,7 +128,6 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
     if conn:
         cursor = conn.cursor()
         
-        # Verify columns before update
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
         for col in ['gender', 'birth_date', 'account_type', 'profile_pic', 'full_name', 'bio']:
@@ -209,7 +208,6 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
     }
 
-    /* Force button styling with high-contrast text */
     div.stButton > button, button[kind="secondary"], button[kind="primary"], [data-testid="baseButton-secondary"], [data-testid="baseButton-primary"] {
         background: #00E676 !important;
         background-color: #00E676 !important;
@@ -667,7 +665,7 @@ elif current_tab == "Chat":
                 st.rerun()
 
 # ==============================================================================
-# TAB 4: PROFILE SECTION (WITH SETTINGS ICON / EDIT TOGGLE)
+# TAB 4: PROFILE SECTION (WITH FOLLOWERS/FOLLOWING IN PARALLEL & SETTINGS ICON)
 # ==============================================================================
 elif current_tab == "Profile":
     conn = get_db_connection()
@@ -696,34 +694,54 @@ elif current_tab == "Profile":
     else:
         avatar_display_html = f"<div style='background-color: #00C853; color: #0e1117; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;'>{first_letter}</div>"
 
-    # Profile banner with name, ID, and setting icon button placed inside the header card area
-    col_p_info, col_p_setting = st.columns([5, 1])
+    # Profile card container with 3 columns layout: Details, Followers/Following Stats (in the empty space), Settings Icon
+    st.markdown("""
+        <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
+    """, unsafe_allow_html=True)
+
+    card_col_info, card_col_stats, card_col_settings = st.columns([5.5, 2.2, 1])
     
-    with col_p_info:
+    with card_col_info:
         st.markdown(f"""
-            <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d; height: 100%;">
-                <div style="display: flex; align-items: center; gap: 20px;">
-                    {avatar_display_html}
-                    <div>
-                        <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
-                        <p style="color: #00C853; font-weight: 600; margin: 4px 0; font-size: 14px;">
-                            🆔 User ID: {user.get('user_id', 'N/A')} &nbsp;|&nbsp; 
-                            🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp; 
-                            ⚧ Gender: {user.get('gender', 'N/A')} &nbsp;|&nbsp; 
-                            📅 DOB: {user.get('birth_date', 'N/A')}
-                        </p>
-                        <p style="color: #ccc; margin: 8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
-                    </div>
+            <div style="display: flex; align-items: center; gap: 20px;">
+                {avatar_display_html}
+                <div>
+                    <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
+                    <p style="color: #00C853; font-weight: 600; margin: 4px 0; font-size: 14px;">
+                        🆔 User ID: {user.get('user_id', 'N/A')} &nbsp;|&nbsp; 
+                        🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp; 
+                        ⚧ Gender: {user.get('gender', 'N/A')} &nbsp;|&nbsp; 
+                        📅 DOB: {user.get('birth_date', 'N/A')}
+                    </p>
+                    <p style="color: #ccc; margin: 8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
                 </div>
             </div>
         """, unsafe_allow_html=True)
         
-    with col_p_setting:
-        st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True)
-        # Settings Icon button that toggles the profile updation form
+    with card_col_stats:
+        # Followers & Following placed parallel in the empty space
+        st.markdown("""
+            <div style="display: flex; justify-content: space-around; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 10px; height: 100%; margin-top: 5px;">
+                <div style="text-align: center;">
+                    <span style="display: block; font-size: 18px; font-weight: bold; color: #00E676;">142</span>
+                    <span style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;">Followers</span>
+                </div>
+                <div style="width: 1px; background: rgba(255,255,255,0.1); height: 30px;"></div>
+                <div style="text-align: center;">
+                    <span style="display: block; font-size: 18px; font-weight: bold; color: #00E676;">85</span>
+                    <span style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;">Following</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+    with card_col_settings:
+        st.markdown("<div style='display: flex; justify-content: flex-end; align-items: center; height: 100%;'>", unsafe_allow_html=True)
         if st.button("⚙️", key="profile_settings_icon_btn", help="Edit Profile Settings"):
             st.session_state.show_edit_profile = not st.session_state.show_edit_profile
             st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
