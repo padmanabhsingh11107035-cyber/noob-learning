@@ -3,11 +3,82 @@ import sqlite3
 import datetime
 import logging
 import sys
+# ==============================================================================
+# USER REGISTRATION / SIGN UP CODE EXAMPLE
+# ==============================================================================
+def register_user(username, password, full_name, bio, profile_pic):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        # Insert or fallback logic can be handled here
+        cursor.execute("""
+            INSERT OR REPLACE INTO users (username, password, full_name, bio, profile_pic)
+            VALUES (?, ?, ?, ?, ?)
+        """, (username, password, full_name, bio, profile_pic))
+        conn.commit()
+        conn.close()
+
+# ==============================================================================
+# PROFILE UPDATE LOGIC WITH FALLBACK TO LAST STORED DETAIL
+# ==============================================================================
+def update_user_profile(username, new_full_name, new_bio, new_profile_pic):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        
+        # 1. Fetch the last stored details for this user from the database
+        cursor.execute("SELECT full_name, bio, profile_pic FROM users WHERE username = ?", (username,))
+        existing_user = cursor.fetchone()
+        
+        if existing_user:
+            # 2. Fallback check: If new input is empty/blank, keep the last stored detail
+            final_full_name = new_full_name if new_full_name and new_full_name.strip() else existing_user['full_name']
+            final_bio = new_bio if new_bio and new_bio.strip() else existing_user['bio']
+            final_profile_pic = new_profile_pic if new_profile_pic and new_profile_pic.strip() else existing_user['profile_pic']
+            
+            # 3. Save the updated or fallback data back into the database
+            cursor.execute("""
+                UPDATE users 
+                SET full_name = ?, bio = ?, profile_pic = ?
+                WHERE username = ?
+            """, (final_full_name, final_bio, final_profile_pic, username))
+            
+            conn.commit()
+        conn.close()
 def load_css(file_name):
     with open(file_name) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 load_css(".streamlit/style.css")
+# ==============================================================================
+# PROFILE UPDATE FORM SECTION
+# ==============================================================================
+if "Profile" in globals().get("current_tab", "") or "profile" in str(globals().get("current_tab", "")).lower():
+    st.markdown("### ⚙️ Update Your Profile Details")
+    
+    # Grab current user session name if available
+    current_user_name = globals().get("username", "user")
+    
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = ?", (current_user_name,))
+        row = cursor.fetchone()
+        current_data = dict(row) if row else {}
+        conn.close()
+    else:
+        current_data = {}
+
+    with st.form("update_profile_form_bottom"):
+        updated_name = st.text_input("Full Name", value=current_data.get('full_name', ''))
+        updated_bio = st.text_area("Bio", value=current_data.get('bio', ''))
+        updated_pic = st.text_input("Profile Picture URL (Optional)", value=current_data.get('profile_pic', ''))
+        
+        submitted = st.form_submit_button("Save Changes")
+        if submitted:
+            update_user_profile(current_user_name, updated_name, updated_bio, updated_pic)
+            st.success("Profile updated successfully! Missing fields kept their previous values.")
+            st.rerun()
 
 # ==============================================================================
 # 0. LOGGING & PAGE CONFIG
@@ -388,45 +459,68 @@ elif current_tab == "Reels":
                     st.warning("Please add a caption for your reel.")
 
 # ==============================================================================
-# TAB 3: CHAT SECTION (Exact match to Image 3)
+# TAB 3: CHAT & USER SEARCH SECTION
 # ==============================================================================
 elif current_tab == "Chat":
     conn = get_db_connection()
     peers = []
     if conn:
         cursor = conn.cursor()
+        # Fetch all other users except current user
         cursor.execute("SELECT * FROM users WHERE username != ?", (username,))
         peers = cursor.fetchall()
         conn.close()
 
     if st.session_state.active_chat_user is None:
-        st.markdown("### 💬 Direct Messages")
-        st.markdown("<p style='color: #888; font-size: 14px;'>Select a peer or mentor to start chatting instantly.</p>", unsafe_allow_html=True)
+        st.markdown("### 💬 Direct Messages & User Search")
+        st.markdown("<p style='color: #b0b8c1; font-size: 14px;'>Search users by User ID or pick from recent community members.</p>", unsafe_allow_html=True)
+        
+        # --- Search Box ---
+        search_query = st.text_input("🔍 Search User ID / Username", placeholder="Type a username to search...").strip().lower()
+        
         st.markdown("<hr style='border: 0.5px solid #30363d;'>", unsafe_allow_html=True)
-
-        for p in peers:
-            p_dict = dict(p)
+        
+        # Filter peers based on search query
+        filtered_peers = [dict(p) for p in peers if search_query in p['username'].lower() or (p.get('full_name') and search_query in p['full_name'].lower())] if search_query else [dict(p) for p in peers]
+        
+        if search_query:
+            st.markdown(f"**Search Results for '{search_query}' ({len(filtered_peers)} found):**")
+        else:
+            st.markdown("**🕒 Recent Community Users:**")
+            
+        if not filtered_peers:
+            st.info("No users found matching your search.")
+            
+        for p_dict in filtered_peers:
             avatar_char = p_dict['username'][0].upper()
+            display_name = p_dict.get('full_name') or p_dict['username']
+            profile_pic = p_dict.get('profile_pic') # Checks if custom profile pic exists
             
             c_info, c_btn = st.columns([5, 1])
             with c_info:
+                # If custom profile pic exists, render image; otherwise fallback to default avatar circle
+                if profile_pic:
+                    avatar_html = f"<img src='{profile_pic}' style='width: 42px; height: 42px; border-radius: 50%; object-fit: cover;'>"
+                else:
+                    avatar_html = f"<div style='background-color: #00C853; color: #0e1117; width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px;'>{avatar_char}</div>"
+
                 st.markdown(f"""
                 <div style="display: flex; align-items: flex-start; gap: 15px; padding: 8px 0;">
-                    <div style="background-color: #00C853; color: #0e1117; width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; flex-shrink: 0;">
-                        {avatar_char}
-                    </div>
+                    {avatar_html}
                     <div>
-                        <span style="color: white; font-weight: bold; font-size: 15px;">{p_dict.get('full_name') or p_dict['username']}</span> 
-                        <span style="color: #888; font-size: 13px;">(@{p_dict['username']})</span>
+                        <span style="color: white; font-weight: bold; font-size: 15px;">{display_name}</span> 
+                        <span style="color: #b0b8c1; font-size: 13px;">(@{p_dict['username']})</span>
                         <p style="color: #aaa; font-size: 13px; margin: 4px 0 0 0;">{p_dict.get('bio') or 'No bio added.'}</p>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+                
             with c_btn:
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("Message 💬", key=f"chat_btn_{p_dict['username']}"):
+                if st.button("Message 💬", key=f"search_chat_btn_{p_dict['username']}"):
                     st.session_state.active_chat_user = p_dict['username']
                     st.rerun()
+                    
             st.markdown("<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>", unsafe_allow_html=True)
             
     else:
