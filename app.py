@@ -754,7 +754,7 @@ if current_tab == "Feed":
                 <b style="color: white;">Platform Features:</b>
                 <ul style="color: #aaa; font-size: 13px; padding-left: 20px; line-height: 1.6;">
                     <li>🎬 <b>Reels Hub:</b> Watch and post bite-sized learning reels.</li>
-                    <li>💬 <b>Live Chat:</b> Direct messaging with refresh button.</li>
+                    <li>💬 <b>Live Chat:</b> Real-time messaging with auto-sync.</li>
                     <li>👤 <b>Custom Profiles:</b> Public/Private badges & bios.</li>
                 </ul>
             </div>
@@ -1085,6 +1085,14 @@ elif current_tab == "Chat":
         " margin-top: 5px;'>🔒 End-to-end encrypted</p>",
         unsafe_allow_html=True,
     )
+
+    # Automatic background live chat polling sync component
+    try:
+      from streamlit_autorefresh import st_autorefresh
+
+      st_autorefresh(interval=3000, limit=None, key="chat_live_sync")
+    except ImportError:
+      pass
 
 # ==============================================================================
 # TAB 4: PROFILE SECTION (WITH EDIT & DELETE ACCOUNT FEATURE)
