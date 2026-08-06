@@ -11,8 +11,8 @@ import streamlit as st
 import pymysql
 import time
 
-def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
-    """Dynamically updates only the columns that actually exist in the users table."""
+ddef safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
+    """Ensures profile columns exist in the database, then updates them successfully."""
     db_type, conn = get_db_connection()
     if not conn:
         st.error("Database connection failed.")
@@ -21,56 +21,50 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
     try:
         cursor = conn.cursor()
         
-        # 1. Fetch existing column names from the database table automatically
+        # Automatically create missing columns in the users table so updates never fail
         if db_type == "mysql":
             cursor.execute("SHOW COLUMNS FROM users")
-            columns = [row[0] for row in cursor.fetchall()]
+            existing_cols = [row[0] for row in cursor.fetchall()]
+            
+            if 'name' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN name VARCHAR(255)")
+            if 'bio' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
+            if 'age' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN age INT")
+            if 'gender' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN gender VARCHAR(50)")
+            if 'birth_date' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN birth_date VARCHAR(50)")
+                
+            query = """
+                UPDATE users 
+                SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s 
+                WHERE user_id = %s
+            """
+            cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
         else:
             cursor.execute("PRAGMA table_info(users)")
-            columns = [row[1] for row in cursor.fetchall()]
+            existing_cols = [row[1] for row in cursor.fetchall()]
             
-        # 2. Map form inputs to potential database column names
-        updates = []
-        params = []
-        
-        # Check for name columns
-        for name_col in ['name', 'full_name', 'username']:
-            if name_col in columns:
-                updates.append(f"{name_col} = %s" if db_type == "mysql" else f"{name_col} = ?")
-                params.append(sanitize_input(new_name))
-                break
+            if 'name' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN name TEXT")
+            if 'bio' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
+            if 'age' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN age INTEGER")
+            if 'gender' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
+            if 'birth_date' not in existing_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
                 
-        # Check for bio column
-        if 'bio' in columns:
-            updates.append("bio = %s" if db_type == "mysql" else "bio = ?")
-            params.append(sanitize_input(new_bio))
+            query = """
+                UPDATE users 
+                SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
+                WHERE user_id = ?
+            """
+            cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
             
-        # Check for age column
-        if 'age' in columns:
-            updates.append("age = %s" if db_type == "mysql" else "age = ?")
-            params.append(int(new_age))
-            
-        # Check for gender column
-        if 'gender' in columns:
-            updates.append("gender = %s" if db_type == "mysql" else "gender = ?")
-            params.append(sanitize_input(new_gender))
-            
-        # Check for birth date column
-        for birth_col in ['birth_date', 'birthday', 'dob']:
-            if birth_col in columns:
-                updates.append(f"{birth_col} = %s" if db_type == "mysql" else f"{birth_col} = ?")
-                params.append(sanitize_input(new_birth_date))
-                break
-
-        if not updates:
-            st.error("No matching profile columns found in the database table.")
-            return False
-
-        # 3. Build and execute the dynamic query safely
-        params.append(user_id)
-        query = f"UPDATE users SET {', '.join(updates)} WHERE user_id = {'%s' if db_type == 'mysql' else '?'}"
-        
-        cursor.execute(query, tuple(params))
         conn.commit()
         return True
     except Exception as e:
