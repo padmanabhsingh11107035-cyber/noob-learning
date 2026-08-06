@@ -159,8 +159,8 @@ if not st.session_state.logged_in:
         
         if st.session_state.auth_mode == "login":
             with st.form("insta_login_form"):
-                username = st.text_input("", placeholder="Username or mobile number", label_visibility="collapsed")
-                password = st.text_input("", placeholder="Password", type="password", label_visibility="collapsed")
+                username = st.text_input("Username Input", placeholder="Username or mobile number", label_visibility="collapsed")
+                password = st.text_input("Password Input", placeholder="Password", type="password", label_visibility="collapsed")
                 login_submitted = st.form_submit_button("Log in", use_container_width=True)
                 
                 if login_submitted:
@@ -184,8 +184,8 @@ if not st.session_state.logged_in:
         else:
             with st.form("insta_signup_form"):
                 st.markdown("<h4 style='text-align: center; color: #666;'>Sign up to see posts from your friends.</h4>", unsafe_allow_html=True)
-                new_user = st.text_input("", placeholder="Mobile Number, username or email", label_visibility="collapsed")
-                new_pass = st.text_input("", placeholder="Password", type="password", label_visibility="collapsed")
+                new_user = st.text_input("New Username Input", placeholder="Mobile Number, username or email", label_visibility="collapsed")
+                new_pass = st.text_input("New Password Input", placeholder="Password", type="password", label_visibility="collapsed")
                 signup_submitted = st.form_submit_button("Sign up", use_container_width=True)
                 
                 if signup_submitted:
@@ -415,23 +415,75 @@ elif current_tab == "Profile":
         
         # Action Buttons (Follow / Message / Edit Profile)
         if is_own_profile:
-            with st.expander("⚙️ Edit Profile Details & Settings"):
+            with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
+                st.write("### Edit Profile Details")
+                
+                st.markdown("#### Update Profile Picture")
+                uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
+
+                if uploaded_pic is not None:
+                    st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
+                    if st.button("Save Profile Picture", key="save_profile_pic_btn"):
+                        try:
+                            pic_bytes = uploaded_pic.getvalue()
+                            db_type, conn = get_db_connection()
+                            if conn:
+                                cursor = conn.cursor()
+                                cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
+                                conn.commit()
+                                conn.close()
+                            st.success("Profile picture updated successfully! Refreshing...")
+                            st.rerun()
+                        except Exception as img_err:
+                            st.error(f"Error updating profile picture: {img_err}")
+
                 with st.form("edit_profile_form"):
-                    new_name = st.text_input("Name", value=profile_data.get('name', ''))
-                    new_bio = st.text_area("Bio", value=profile_data.get('bio', ''))
-                    new_age = st.number_input("Age", min_value=1, max_value=120, value=int(profile_data.get('age') or 18))
+                    current_name_val = profile_data.get('name') or user.get('username', '') or ''
+                    new_name = st.text_input("Name", value=current_name_val, key="edit_name_input")
+                    new_bio = st.text_area("Bio", value=profile_data.get('bio', '') or '', key="edit_bio_input")
+                    
+                    default_age = profile_data.get('age') or 18
+                    try:
+                        default_age = int(default_age)
+                    except:
+                        default_age = 18
+                    new_age = st.number_input("Age", min_value=1, max_value=120, value=default_age, key="edit_age_input")
                     
                     gender_options = ["Male", "Female", "Other", "Prefer not to say"]
-                    cur_g = profile_data.get('gender')
-                    g_idx = gender_options.index(cur_g) if cur_g in gender_options else 0
-                    new_gender = st.selectbox("Gender", gender_options, index=g_idx)
-                    new_birth_date = st.text_input("Birth Date (DD/MM/YYYY)", value=profile_data.get('birth_date', ''))
+                    current_gender = profile_data.get('gender')
+                    gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
+                    new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
+                    
+                    current_birth = profile_data.get('birth_date') or ''
+                    clean_birth = "".join(filter(str.isdigit, str(current_birth)))
+                    if len(clean_birth) == 8:
+                        formatted_default = f"{clean_birth[:2]}/{clean_birth[2:4]}/{clean_birth[4:]}"
+                    else:
+                        formatted_default = current_birth if current_birth else "DD/MM/YYYY"
 
-                    if st.form_submit_button("Save Changes"):
+                    new_birth_date = st.text_input(
+                        "Birth Date (DD/MM/YYYY)", 
+                        value=formatted_default, 
+                        placeholder="DD/MM/YYYY",
+                        key="edit_birthdate_input"
+                    )
+
+                    if st.form_submit_button("Update Profile"):
                         success = safe_update_user_profile(
-                            profile_data['user_id'], new_name, new_bio, new_age, new_gender, new_birth_date
+                            user['user_id'], 
+                            new_name, 
+                            new_bio, 
+                            new_age, 
+                            new_gender, 
+                            new_birth_date
                         )
                         if success:
+                            user['name'] = new_name
+                            user['bio'] = new_bio
+                            user['age'] = new_age
+                            user['gender'] = new_gender
+                            user['birth_date'] = new_birth_date
+                            
                             st.success("Profile updated successfully!")
                             st.rerun()
         else:
@@ -452,199 +504,6 @@ elif current_tab == "Profile":
         st.error("User not found.")
 
 st.markdown("<p style='text-align: center; color: #8e8e8e; font-size: 12px; margin-top: 60px;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
-
-# --- CUSTOM CSS FOR GREEN BUTTON ---
-st.markdown("""
-    <style>
-    div.stFormSubmitButton > button {
-        background-color: #28a745 !important;
-        color: white !important;
-        border: none !important;
-    }
-    div.stFormSubmitButton > button:hover {
-        background-color: #218838 !important;
-        color: white !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- LOGIN / SIGNUP SCREEN ---
-if not st.session_state.logged_in:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        # Stylish Font Header in Black
-        st.markdown("""
-            <div style='text-align: center; margin-top: 40px; margin-bottom: 25px;'>
-                <h1 style='font-family: "Brush Script MT", cursive, sans-serif; font-size: 48px; color: #000000; font-weight: bold;'>
-                    Noob Learning
-                </h1>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if st.session_state.auth_mode == "login":
-            with st.form("insta_login_form"):
-                username = st.text_input("", placeholder="Username, email or mobile number", label_visibility="collapsed")
-                password = st.text_input("", placeholder="Password", type="password", label_visibility="collapsed")
-                
-                login_submitted = st.form_submit_button("Log in", use_container_width=True)
-                
-                if login_submitted:
-                    db_type, conn = get_db_connection()
-                    if conn:
-                        cursor = conn.cursor()
-                        # Strip whitespaces to prevent credential mismatches
-                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username.strip(), password))
-                        user_row = cursor.fetchone()
-                        conn.close()
-                        
-                        if user_row:
-                            st.session_state.logged_in = True
-                            st.session_state.user = dict(user_row)
-                            st.rerun()
-                        else:
-                            st.error("Incorrect username or password.")
-                    else:
-                        st.error("Database error.")
-
-            st.markdown("<p style='text-align: center; color: #00376b; font-size: 14px; margin-top: 15px;'>Forgot password?</p>", unsafe_allow_html=True)
-            
-            st.markdown("<hr style='margin: 25px 0;'>", unsafe_allow_html=True)
-            
-            if st.button("Create new account", use_container_width=True):
-                st.session_state.auth_mode = "signup"
-                st.rerun()
-                
-        else:
-            with st.form("insta_signup_form"):
-                st.markdown("<h4 style='text-align: center; color: #666;'>Sign up to see photos and videos from your friends.</h4>", unsafe_allow_html=True)
-                new_user = st.text_input("", placeholder="Mobile Number, username or email", label_visibility="collapsed")
-                new_pass = st.text_input("", placeholder="Password", type="password", label_visibility="collapsed")
-                signup_submitted = st.form_submit_button("Sign up", use_container_width=True)
-                
-                if signup_submitted:
-                    if new_user and new_pass:
-                        db_type, conn = get_db_connection()
-                        if conn:
-                            try:
-                                cursor = conn.cursor()
-                                cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (?, ?, ?, ?)", 
-                                               (new_user.strip(), new_pass, new_user.strip(), "Noob Learning User"))
-                                conn.commit()
-                                conn.close()
-                                st.success("Account created successfully! Please log in.")
-                                st.session_state.auth_mode = "login"
-                                st.rerun()
-                            except sqlite3.IntegrityError:
-                                st.error("Username already exists.")
-                                conn.close()
-                    else:
-                        st.warning("Please fill in all fields.")
-                        
-            if st.button("Back to Login", use_container_width=True):
-                st.session_state.auth_mode = "login"
-                st.rerun()
-
-        st.markdown("<p style='text-align: center; color: #8e8e8e; font-size: 12px; margin-top: 60px;'>Saraah Robotics</p>", unsafe_allow_html=True)
-
-    st.stop()
-
-# --- MAIN APP ---
-user = st.session_state.user
-profile_id = user.get('user_id')
-
-db_type, conn = get_db_connection()
-profile_user = None
-if conn:
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
-        row = cursor.fetchone()
-        if row:
-            profile_user = dict(row)
-    finally:
-        conn.close()
-
-if not profile_user:
-    profile_user = user
-
-st.title("Noob Learning Hub")
-if st.button("Log Out"):
-    st.session_state.logged_in = False
-    st.session_state.user = None
-    st.rerun()
-
-if profile_user.get('user_id') == user.get('user_id'):
-    with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
-        st.write("### Edit Profile Details")
-        
-        st.markdown("#### Update Profile Picture")
-        uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
-
-        if uploaded_pic is not None:
-            st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
-            if st.button("Save Profile Picture", key="save_profile_pic_btn"):
-                try:
-                    pic_bytes = uploaded_pic.getvalue()
-                    db_type, conn = get_db_connection()
-                    if conn:
-                        cursor = conn.cursor()
-                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
-                        conn.commit()
-                        conn.close()
-                    st.success("Profile picture updated successfully! Refreshing...")
-                    st.rerun()
-                except Exception as img_err:
-                    st.error(f"Error updating profile picture: {img_err}")
-
-        with st.form("edit_profile_form"):
-            current_name_val = profile_user.get('name') or user.get('username', '') or ''
-            new_name = st.text_input("Name", value=current_name_val, key="edit_name_input")
-            new_bio = st.text_area("Bio", value=profile_user.get('bio', '') or '', key="edit_bio_input")
-            
-            default_age = profile_user.get('age') or 18
-            try:
-                default_age = int(default_age)
-            except:
-                default_age = 18
-            new_age = st.number_input("Age", min_value=1, max_value=120, value=default_age, key="edit_age_input")
-            
-            gender_options = ["Male", "Female", "Other", "Prefer not to say"]
-            current_gender = profile_user.get('gender')
-            gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
-            new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
-            
-            current_birth = profile_user.get('birth_date') or ''
-            clean_birth = "".join(filter(str.isdigit, str(current_birth)))
-            if len(clean_birth) == 8:
-                formatted_default = f"{clean_birth[:2]}/{clean_birth[2:4]}/{clean_birth[4:]}"
-            else:
-                formatted_default = current_birth if current_birth else "DD/MM/YYYY"
-
-            new_birth_date = st.text_input(
-                "Birth Date (DD/MM/YYYY)", 
-                value=formatted_default, 
-                placeholder="DD/MM/YYYY",
-                key="edit_birthdate_input"
-            )
-
-            if st.form_submit_button("Update Profile"):
-                success = safe_update_user_profile(
-                    user['user_id'], 
-                    new_name, 
-                    new_bio, 
-                    new_age, 
-                    new_gender, 
-                    new_birth_date
-                )
-                if success:
-                    user['name'] = new_name
-                    user['bio'] = new_bio
-                    user['age'] = new_age
-                    user['gender'] = new_gender
-                    user['birth_date'] = new_birth_date
-                    
-                    st.success("Profile updated successfully!")
-                    st.rerun()
 # Live Chat Input Box
 
 def render_live_chat(current_user):
