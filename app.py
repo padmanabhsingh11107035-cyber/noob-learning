@@ -11,7 +11,7 @@ import streamlit as st
 import pymysql
 import time
 
-ddef safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
+def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
     """Ensures profile columns exist in the database, then updates them successfully."""
     db_type, conn = get_db_connection()
     if not conn:
