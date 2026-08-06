@@ -612,7 +612,7 @@ elif current_tab == "Reels":
                     st.warning("Please add a caption for your reel.")
 
 # ==============================================================================
-# TAB 3: CHAT & USER SEARCH SECTION (WITH FOLLOW / UNFOLLOW BUTTONS)
+# TAB 3: CHAT & USER SEARCH SECTION (WHATSAPP STYLE LIVE CHAT)
 # ==============================================================================
 elif current_tab == "Chat":
     conn = get_db_connection()
@@ -714,14 +714,67 @@ elif current_tab == "Chat":
             
     else:
         peer_name = st.session_state.active_chat_user
-        if st.button("⬅ Back to Inbox"):
-            st.session_state.active_chat_user = None
-            st.rerun()
-
-        st.markdown(f"### Chat with @{peer_name}")
-        chat_container = st.container(height=400)
         
+        # WhatsApp-style chat interface header & container
+        c_back, c_title = st.columns([1, 6])
+        with c_back:
+            if st.button("⬅ Back"):
+                st.session_state.active_chat_user = None
+                st.rerun()
+        with c_title:
+            st.markdown(f"<h3 style='margin: 0; color: #fff;'>💬 @{peer_name}</h3>", unsafe_allow_html=True)
+            
+        st.markdown("<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>", unsafe_allow_html=True)
+        
+        # WhatsApp style chat window wrapper
+        st.markdown("""
+        <style>
+            .whatsapp-box {
+                background-color: #0b141a;
+                background-image: radial-gradient(#111b21 9%, transparent 9%), radial-gradient(#111b21 9%, transparent 9%);
+                background-size: 20px 20px;
+                background-position: 0 0, 10px 10px;
+                border: 1px solid #30363d;
+                border-radius: 12px;
+                padding: 15px;
+                height: 420px;
+                overflow-y: scroll;
+                display: flex;
+                flex-direction: column;
+            }
+            .msg-bubble-sent {
+                background: #005c4b;
+                color: #e9edef;
+                padding: 8px 14px;
+                border-radius: 8px 0px 8px 8px;
+                max-width: 70%;
+                margin: 4px 0 4px auto;
+                word-wrap: break-word;
+                box-shadow: 0 1px 0.5px rgba(0,0,0,0.3);
+                font-size: 14px;
+            }
+            .msg-bubble-recv {
+                background: #202c33;
+                color: #e9edef;
+                padding: 8px 14px;
+                border-radius: 0px 8px 8px 8px;
+                max-width: 70%;
+                margin: 4px auto 4px 0;
+                word-wrap: break-word;
+                box-shadow: 0 1px 0.5px rgba(0,0,0,0.3);
+                font-size: 14px;
+            }
+            .msg-time {
+                font-size: 10px;
+                color: #8696a0;
+                text-align: right;
+                margin-top: 2px;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
         conn = get_db_connection()
+        messages = []
         if conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -731,27 +784,57 @@ elif current_tab == "Chat":
             """, (username, peer_name, peer_name, username))
             messages = cursor.fetchall()
             conn.close()
-            
-            with chat_container:
-                for msg in messages:
-                    m = dict(msg)
-                    if m['sender'] == username:
-                        st.markdown(f"<div style='text-align: right;'><span style='background: #00C853; color: #0e1117; padding: 8px 14px; border-radius: 12px; display: inline-block; margin: 4px 0; text-align: left;'>{m['message']}</span></div>", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"<div style='text-align: left;'><span style='background: #21262d; color: white; padding: 8px 14px; border-radius: 12px; display: inline-block; margin: 4px 0;'>{m['message']}</span></div>", unsafe_allow_html=True)
 
-        new_msg = st.chat_input(f"Message @{peer_name}...")
-        if new_msg:
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO messages (sender, receiver, message, timestamp)
-                    VALUES (?, ?, ?, ?)
-                """, (username, peer_name, new_msg, get_current_ist_time()))
-                conn.commit()
-                conn.close()
-                st.rerun()
+        # Render chat messages inside a scrollable container
+        chat_html = "<div class='whatsapp-box'>"
+        for msg in messages:
+            m = dict(msg)
+            t_str = m.get('timestamp', '')
+            time_only = t_str.split(' ')[1][:5] if ' ' in t_str else t_str
+            
+            if m['sender'] == username:
+                chat_html += f"""
+                    <div style="display: flex; flex-direction: column;">
+                        <div class="msg-bubble-sent">
+                            {m['message']}
+                            <div class="msg-time">{time_only} ✓✓</div>
+                        </div>
+                    </div>
+                """
+            else:
+                chat_html += f"""
+                    <div style="display: flex; flex-direction: column;">
+                        <div class="msg-bubble-recv">
+                            {m['message']}
+                            <div class="msg-time">{time_only}</div>
+                        </div>
+                    </div>
+                """
+        chat_html += "</div>"
+        st.markdown(chat_html, unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # WhatsApp-style input form at the bottom
+        with st.form(key="whatsapp_chat_form", clear_on_submit=True):
+            cols_input = [5, 1]
+            c_txt, c_btn = st.columns(cols_input)
+            with c_txt:
+                msg_input = st.text_input("Type a message", placeholder=f"Message @{peer_name}...", label_visibility="collapsed")
+            with c_btn:
+                send_submitted = st.form_submit_button("Send ➔", use_container_width=True)
+                
+            if send_submitted and msg_input.strip():
+                conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT INTO messages (sender, receiver, message, timestamp)
+                        VALUES (?, ?, ?, ?)
+                    """, (username, peer_name, msg_input.strip(), get_current_ist_time()))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
 
 # ==============================================================================
 # TAB 4: PROFILE SECTION (EDIT USERNAME & ORIGINAL FOLLOWERS)
@@ -858,7 +941,7 @@ elif current_tab == "Profile":
             acc_options = ["Public", "Private"]
             current_acc = user.get('account_type', 'Public')
             acc_idx = acc_options.index(current_acc) if current_acc in acc_options else 0
-            new_acc_type = st.selectbox("🔒 Account Type (Public = Everyone, Private = Followers/Friends only)", acc_options, index=acc_idx)
+            new_acc_type = st.selectbox("🔒 Account Type (Public = Everyone, Private = Friends only)", acc_options, index=acc_idx)
             
             new_bio = st.text_area("📝 Bio", value=user.get('bio', ''))
             
@@ -889,7 +972,6 @@ elif current_tab == "Profile":
                 )
                 
                 if updated_ok:
-                    # Refresh session state user dictionary with new username
                     conn = get_db_connection()
                     if conn:
                         cursor = conn.cursor()
