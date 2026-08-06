@@ -1,9 +1,22 @@
 import streamlit as st
 import sqlite3
 import datetime
+import logging
+import sys
+
+# ==============================================================================
+# 0. LOGGING AND SYSTEM SETUP
+# ==============================================================================
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+logger = logging.getLogger("NoobLearningApp")
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
+st.set_page_config(
+    page_title="Noob Learning",
+    page_icon="🎓",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
 # --- DATABASE SETUP & FIXES ---
 def get_db_connection():
@@ -107,40 +120,73 @@ if 'active_chat_user' not in st.session_state:
     st.session_state.active_chat_user = None
 
 # --- CUSTOM CSS STYLING ---
-st.markdown("""
+def inject_custom_css():
+    custom_css = """
     <style>
-    div.stFormSubmitButton > button {
-        background-color: #28a745 !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 6px;
-    }
-    div.stFormSubmitButton > button:hover {
-        background-color: #218838 !important;
-        color: white !important;
-    }
-    .chat-bubble-user {
-        background: #0095f6;
-        color: white;
-        padding: 10px 14px;
-        border-radius: 15px 15px 2px 15px;
-        margin: 5px 0;
-        max-width: 70%;
-        float: right;
-        clear: both;
-    }
-    .chat-bubble-peer {
-        background: #efefef;
-        color: black;
-        padding: 10px 14px;
-        border-radius: 15px 15px 15px 2px;
-        margin: 5px 0;
-        max-width: 70%;
-        float: left;
-        clear: both;
-    }
+        @import url('https://fonts.googleapis.com/css2?family=Billabong&family=Inter:wght@400;500;600&display=swap');
+
+        .stApp {
+            background-color: #fafafa;
+        }
+
+        header {visibility: hidden;}
+
+        .insta-brand-title {
+            font-family: 'Billabong', cursive, sans-serif;
+            font-size: 3.2rem;
+            text-align: center;
+            color: #262626;
+            margin-bottom: 0.5rem;
+            font-weight: normal;
+        }
+
+        div.stFormSubmitButton > button {
+            background-color: #28a745 !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 6px;
+        }
+        div.stFormSubmitButton > button:hover {
+            background-color: #218838 !important;
+            color: white !important;
+        }
+        .chat-bubble-user {
+            background: #0095f6;
+            color: white;
+            padding: 10px 14px;
+            border-radius: 15px 15px 2px 15px;
+            margin: 5px 0;
+            max-width: 70%;
+            float: right;
+            clear: both;
+        }
+        .chat-bubble-peer {
+            background: #efefef;
+            color: black;
+            padding: 10px 14px;
+            border-radius: 15px 15px 15px 2px;
+            margin: 5px 0;
+            max-width: 70%;
+            float: left;
+            clear: both;
+        }
+
+        /* Footer Branding */
+        .app-footer {
+            text-align: center;
+            color: #8e8e8e;
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 1px;
+            margin-top: 3rem;
+            padding-bottom: 1rem;
+            text-transform: uppercase;
+        }
     </style>
-""", unsafe_allow_html=True)
+    """
+    st.markdown(custom_css, unsafe_allow_html=True)
+
+inject_custom_css()
 
 # --- AUTHENTICATION SCREEN ---
 if not st.session_state.logged_in:
@@ -148,7 +194,7 @@ if not st.session_state.logged_in:
     with col2:
         st.markdown("""
             <div style='text-align: center; margin-top: 40px; margin-bottom: 25px;'>
-                <h1 style='font-family: "Brush Script MT", cursive, sans-serif; font-size: 48px; color: #000000; font-weight: bold;'>
+                <h1 class='insta-brand-title'>
                     Noob Learning
                 </h1>
             </div>
@@ -208,7 +254,7 @@ if not st.session_state.logged_in:
                 st.session_state.auth_mode = "login"
                 st.rerun()
 
-        st.markdown("<p style='text-align: center; color: #8e8e8e; font-size: 12px; margin-top: 60px;'>Saraah Robotics</p>", unsafe_allow_html=True)
+        st.markdown("<p class='app-footer'>Saraah Robotics</p>", unsafe_allow_html=True)
     st.stop()
 
 # --- MAIN APP LAYOUT & NAVIGATION ---
@@ -500,61 +546,7 @@ elif current_tab == "Profile":
     else:
         st.error("User not found.")
 
-st.markdown("<p style='text-align: center; color: #8e8e8e; font-size: 12px; margin-top: 60px;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
-
-# ==============================================================================
-# 0. LOGGING AND SYSTEM SETUP
-# ==============================================================================
-logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-logger = logging.getLogger("NoobLearningApp")
-
-# ==============================================================================
-# 1. PAGE CONFIGURATION & INSTAGRAM-INSPIRED CSS STYLING
-# ==============================================================================
-st.set_page_config(
-    page_title="NOOB LEARNING",
-    page_icon="🎓",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
-
-def inject_custom_css():
-    """Injects custom CSS to match Instagram layout, reel overlays, and font branding"""
-    custom_css = """
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Billabong&family=Inter:wght@400;500;600&display=swap');
-
-        .stApp {
-            background-color: #fafafa;
-        }
-
-        header {visibility: hidden;}
-
-        .insta-brand-title {
-            font-family: 'Billabong', cursive, sans-serif;
-            font-size: 3.2rem;
-            text-align: center;
-            color: #262626;
-            margin-bottom: 0.5rem;
-            font-weight: normal;
-        }
-
-        /* Footer Branding */
-        .app-footer {
-            text-align: center;
-            color: #8e8e8e;
-            font-size: 0.75rem;
-            font-weight: 500;
-            letter-spacing: 1px;
-            margin-top: 3rem;
-            padding-bottom: 1rem;
-            text-transform: uppercase;
-        }
-    </style>
-    """
-    st.markdown(custom_css, unsafe_allow_html=True)
-
-inject_custom_css()
+st.markdown("<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
 
 # ==============================================================================
 # 2. DATABASE CONFIGURATION & FALLBACK (Local SQLite or Cloud MySQL)
