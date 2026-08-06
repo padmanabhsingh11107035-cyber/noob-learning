@@ -7,9 +7,24 @@ import zoneinfo
 import logging
 import sys
 import re
-import streamlit as st
 import pymysql
 import time
+
+def get_db_connection():
+    """Connects directly to your Aiven MySQL database with SSL enabled."""
+    try:
+        conn = mysql.connector.connect(
+            host="mysql-22faa093-padmanabhsingh11107035-84a9.l.aivencloud.com",
+            port=21354,
+            user="avnadmin",
+            password="AVNS_iN1XY9WAsRF1UWVhM6k",
+            database="defaultdb",
+            ssl_disabled=False
+        )
+        return "mysql", conn
+    except Exception as e:
+        st.error(f"Database connection error: {e}")
+        return None, None
 
 def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
     """Ensures profile columns exist in the database, then updates them successfully."""
@@ -72,81 +87,113 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
         return False
     finally:
         conn.close()
+
+# Example mock session states for context completion if not already present
+if 'user' not in st.session_state:
+    st.session_state.user = {'user_id': 1, 'name': 'SARAAN ROBOTICS', 'bio': 'Welcome to NOOB LEARNING!'}
+if 'viewing_profile_id' not in st.session_state:
+    st.session_state.viewing_profile_id = 1
+
+user = st.session_state.user
+profile_id = st.session_state.viewing_profile_id
+
+db_type, conn = get_db_connection()
+profile_user = None
+if conn:
+    try:
+        if db_type == "mysql":
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM users WHERE user_id = %s", (profile_id,))
+            profile_user = cursor.fetchone()
+        else:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
+            row = cursor.fetchone()
+            profile_user = dict(row) if row else None
+    finally:
+        conn.close()
+
+if not profile_user:
+    profile_user = user
+
 ########################################################################################################################
 # FORM WRAPPER WITH CORRECT ALIGNED INDENTATION
-if profile_user['user_id'] == user['user_id']:
-                    with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
-                        st.write("### Edit Profile Details")
-                        
-                        st.markdown("#### Update Profile Picture")
-                        uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
+if profile_user.get('user_id') == user.get('user_id'):
+    with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
+        st.write("### Edit Profile Details")
+        
+        st.markdown("#### Update Profile Picture")
+        uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
 
-                        if uploaded_pic is not None:
-                            st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
-                            if st.button("Save Profile Picture", key="save_profile_pic_btn"):
-                                try:
-                                    pic_bytes = uploaded_pic.getvalue()
-                                    if db_type == "mysql":
-                                        cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
-                                    else:
-                                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
-                                    conn.commit()
-                                    st.success("Profile picture updated successfully! Refreshing...")
-                                    st.rerun()
-                                except Exception as img_err:
-                                    st.error(f"Error updating profile picture: {img_err}")
+        if uploaded_pic is not None:
+            st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
+            if st.button("Save Profile Picture", key="save_profile_pic_btn"):
+                try:
+                    pic_bytes = uploaded_pic.getvalue()
+                    db_type, conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        if db_type == "mysql":
+                            cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
+                        else:
+                            cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
+                        conn.commit()
+                        conn.close()
+                    st.success("Profile picture updated successfully! Refreshing...")
+                    st.rerun()
+                except Exception as img_err:
+                    st.error(f"Error updating profile picture: {img_err}")
 
-                        # Make sure this line lines up cleanly with the code above it:
-                        with st.form("edit_profile_form"):
-                            current_name_val = profile_user.get('name') or profile_user.get('full_name') or user.get('name', '') or ''
-                            new_name = st.text_input("Name", value=current_name_val, key="edit_name_input")
-                            new_bio = st.text_area("Bio", value=profile_user.get('bio', '') or user.get('bio', '') or '', key="edit_bio_input")
-                            
-                            default_age = profile_user.get('age') or user.get('age') or 18
-                            try:
-                                default_age = int(default_age)
-                            except:
-                                default_age = 18
-                            new_age = st.number_input("Age", min_value=1, max_value=120, value=default_age, key="edit_age_input")
-                            
-                            gender_options = ["Male", "Female", "Other", "Prefer not to say"]
-                            current_gender = profile_user.get('gender') or user.get('gender')
-                            gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
-                            new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
-                            
-                            current_birth = profile_user.get('birth_date') or user.get('birth_date') or ''
-                            clean_birth = "".join(filter(str.isdigit, str(current_birth)))
-                            if len(clean_birth) == 8:
-                                formatted_default = f"{clean_birth[:2]}/{clean_birth[2:4]}/{clean_birth[4:]}"
-                            else:
-                                formatted_default = current_birth if current_birth else "DD/MM/YYYY"
+        with st.form("edit_profile_form"):
+            current_name_val = profile_user.get('name') or profile_user.get('full_name') or user.get('name', '') or ''
+            new_name = st.text_input("Name", value=current_name_val, key="edit_name_input")
+            new_bio = st.text_area("Bio", value=profile_user.get('bio', '') or user.get('bio', '') or '', key="edit_bio_input")
+            
+            default_age = profile_user.get('age') or user.get('age') or 18
+            try:
+                default_age = int(default_age)
+            except:
+                default_age = 18
+            new_age = st.number_input("Age", min_value=1, max_value=120, value=default_age, key="edit_age_input")
+            
+            gender_options = ["Male", "Female", "Other", "Prefer not to say"]
+            current_gender = profile_user.get('gender') or user.get('gender')
+            gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 0
+            new_gender = st.selectbox("Gender", gender_options, index=gender_idx, key="edit_gender_select")
+            
+            current_birth = profile_user.get('birth_date') or user.get('birth_date') or ''
+            clean_birth = "".join(filter(str.isdigit, str(current_birth)))
+            if len(clean_birth) == 8:
+                formatted_default = f"{clean_birth[:2]}/{clean_birth[2:4]}/{clean_birth[4:]}"
+            else:
+                formatted_default = current_birth if current_birth else "DD/MM/YYYY"
 
-                            new_birth_date = st.text_input(
-                                "Birth Date (DD/MM/YYYY)", 
-                                value=formatted_default, 
-                                placeholder="DD/MM/YYYY",
-                                key="edit_birthdate_input"
-                            )
+            new_birth_date = st.text_input(
+                "Birth Date (DD/MM/YYYY)", 
+                value=formatted_default, 
+                placeholder="DD/MM/YYYY",
+                key="edit_birthdate_input"
+            )
 
-                            if st.form_submit_button("Update Profile"):
-                                success = safe_update_user_profile(
-                                    user['user_id'], 
-                                    new_name, 
-                                    new_bio, 
-                                    new_age, 
-                                    new_gender, 
-                                    new_birth_date
-                                )
-                                if success:
-                                    user['name'] = new_name
-                                    user['full_name'] = new_name
-                                    user['bio'] = new_bio
-                                    user['age'] = new_age
-                                    user['gender'] = new_gender
-                                    user['birth_date'] = new_birth_date
-                                    
-                                    st.success("Profile updated successfully!")
-                                    st.rerun()
+            if st.form_submit_button("Update Profile"):
+                success = safe_update_user_profile(
+                    user['user_id'], 
+                    new_name, 
+                    new_bio, 
+                    new_age, 
+                    new_gender, 
+                    new_birth_date
+                )
+                if success:
+                    user['name'] = new_name
+                    user['full_name'] = new_name
+                    user['bio'] = new_bio
+                    user['age'] = new_age
+                    user['gender'] = new_gender
+                    user['birth_date'] = new_birth_date
+                    
+                    st.success("Profile updated successfully!")
+                    st.rerun()
 # Live Chat Input Box
 
 def render_live_chat(current_user):
