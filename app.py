@@ -70,6 +70,16 @@ def init_db():
                 except Exception as ex:
                     logger.warning(f"Could not add column {col_name}: {ex}")
 
+        # Followers table for true original count (0 if no followers)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS follows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                follower TEXT,
+                following TEXT,
+                UNIQUE(follower, following)
+            )
+        """)
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS reels_posts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,6 +118,24 @@ init_db()
 def get_current_ist_time():
     ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
     return datetime.datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S")
+
+def get_user_stats(username):
+    conn = get_db_connection()
+    followers_count = 0
+    following_count = 0
+    if conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM follows WHERE following = ?", (username,))
+        row = cursor.fetchone()
+        if row:
+            followers_count = row[0]
+            
+        cursor.execute("SELECT COUNT(*) FROM follows WHERE follower = ?", (username,))
+        row = cursor.fetchone()
+        if row:
+            following_count = row[0]
+        conn.close()
+    return followers_count, following_count
 
 # ==============================================================================
 # USER REGISTRATION & PROFILE UPDATE LOGIC
@@ -555,7 +583,7 @@ elif current_tab == "Reels":
                     st.warning("Please add a caption for your reel.")
 
 # ==============================================================================
-# TAB 3: CHAT & USER SEARCH SECTION
+# TAB 3: CHAT & USER SEARCH SECTION (WITH FOLLOW / UNFOLLOW BUTTONS)
 # ==============================================================================
 elif current_tab == "Chat":
     conn = get_db_connection()
@@ -568,7 +596,7 @@ elif current_tab == "Chat":
 
     if st.session_state.active_chat_user is None:
         st.markdown("### 💬 Direct Messages & User Search")
-        st.markdown("<p style='color: #b0b8c1; font-size: 14px;'>Search users by User ID or pick from recent community members.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #b0b8c1; font-size: 14px;'>Search users by User ID or username, follow peers, and chat instantly.</p>", unsafe_allow_html=True)
         
         search_query = st.text_input("🔍 Search User ID / Username", placeholder="Type a username to search...").strip().lower()
         
@@ -591,12 +619,23 @@ elif current_tab == "Chat":
             st.info("No users found matching your search.")
             
         for p_dict in filtered_peers:
-            avatar_char = p_dict['username'][0].upper()
-            display_name = p_dict.get('full_name') or p_dict['username']
+            peer_uname = p_dict['username']
+            avatar_char = peer_uname[0].upper()
+            display_name = p_dict.get('full_name') or peer_uname
             profile_pic = p_dict.get('profile_pic')
             acc_type = p_dict.get('account_type', 'Public')
             
-            c_info, c_btn = st.columns([5, 1])
+            # Check follow status
+            conn = get_db_connection()
+            is_following = False
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1 FROM follows WHERE follower = ? AND following = ?", (username, peer_uname))
+                if cursor.fetchone():
+                    is_following = True
+                conn.close()
+
+            c_info, c_follow, c_chat = st.columns([4, 1.2, 1])
             with c_info:
                 if profile_pic and profile_pic.startswith('data:image'):
                     avatar_html = f"<img src='{profile_pic}' style='width: 42px; height: 42px; border-radius: 50%; object-fit: cover;'>"
@@ -608,17 +647,38 @@ elif current_tab == "Chat":
                     {avatar_html}
                     <div>
                         <span style="color: white; font-weight: bold; font-size: 15px;">{display_name}</span> 
-                        <span style="color: #b0b8c1; font-size: 13px;">(@{p_dict['username']})</span>
+                        <span style="color: #b0b8c1; font-size: 13px;">(@{peer_uname})</span>
                         <span style="background: #21262d; color: #888; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 5px;">{acc_type}</span>
                         <p style="color: #aaa; font-size: 13px; margin: 4px 0 0 0;">{p_dict.get('bio') or 'No bio added.'}</p>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-            with c_btn:
+            with c_follow:
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("Message 💬", key=f"search_chat_btn_{p_dict['username']}"):
-                    st.session_state.active_chat_user = p_dict['username']
+                if is_following:
+                    if st.button("Unfollow", key=f"unfollow_btn_{peer_uname}"):
+                        conn = get_db_connection()
+                        if conn:
+                            cursor = conn.cursor()
+                            cursor.execute("DELETE FROM follows WHERE follower = ? AND following = ?", (username, peer_uname))
+                            conn.commit()
+                            conn.close()
+                            st.rerun()
+                else:
+                    if st.button("Follow", key=f"follow_btn_{peer_uname}"):
+                        conn = get_db_connection()
+                        if conn:
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT OR IGNORE INTO follows (follower, following) VALUES (?, ?)", (username, peer_uname))
+                            conn.commit()
+                            conn.close()
+                            st.rerun()
+
+            with c_chat:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Message 💬", key=f"search_chat_btn_{peer_uname}"):
+                    st.session_state.active_chat_user = peer_uname
                     st.rerun()
                     
             st.markdown("<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>", unsafe_allow_html=True)
@@ -665,7 +725,7 @@ elif current_tab == "Chat":
                 st.rerun()
 
 # ==============================================================================
-# TAB 4: PROFILE SECTION (WITH FOLLOWERS/FOLLOWING IN PARALLEL & SETTINGS ICON)
+# TAB 4: PROFILE SECTION (ORIGINAL FOLLOWERS & FOLLOWING COUNTS FROM DB)
 # ==============================================================================
 elif current_tab == "Profile":
     conn = get_db_connection()
@@ -688,13 +748,16 @@ elif current_tab == "Profile":
             st.session_state.user = user
         conn.close()
 
+    # Fetch original follower and following counts directly from database table
+    followers_num, following_num = get_user_stats(username)
+
     current_pic_data = user.get('profile_pic')
     if current_pic_data and current_pic_data.startswith('data:image'):
         avatar_display_html = f"<img src='{current_pic_data}' style='width: 70px; height: 70px; border-radius: 50%; object-fit: cover;'>"
     else:
         avatar_display_html = f"<div style='background-color: #00C853; color: #0e1117; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;'>{first_letter}</div>"
 
-    # Profile card container with 3 columns layout: Details, Followers/Following Stats (in the empty space), Settings Icon
+    # Profile card container with 3 columns layout: Details, Original Followers/Following Stats, Settings Icon
     st.markdown("""
         <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
     """, unsafe_allow_html=True)
@@ -719,16 +782,16 @@ elif current_tab == "Profile":
         """, unsafe_allow_html=True)
         
     with card_col_stats:
-        # Followers & Following placed parallel in the empty space
-        st.markdown("""
+        # Original Followers & Following placed parallel in the empty space
+        st.markdown(f"""
             <div style="display: flex; justify-content: space-around; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 10px; height: 100%; margin-top: 5px;">
                 <div style="text-align: center;">
-                    <span style="display: block; font-size: 18px; font-weight: bold; color: #00E676;">142</span>
+                    <span style="display: block; font-size: 18px; font-weight: bold; color: #00E676;">{followers_num}</span>
                     <span style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;">Followers</span>
                 </div>
                 <div style="width: 1px; background: rgba(255,255,255,0.1); height: 30px;"></div>
                 <div style="text-align: center;">
-                    <span style="display: block; font-size: 18px; font-weight: bold; color: #00E676;">85</span>
+                    <span style="display: block; font-size: 18px; font-weight: bold; color: #00E676;">{following_num}</span>
                     <span style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;">Following</span>
                 </div>
             </div>
@@ -783,7 +846,8 @@ elif current_tab == "Profile":
                     bytes_data = uploaded_pic_file.getvalue()
                     encoded = base64.b64encode(bytes_data).decode()
                     file_extension = uploaded_pic_file.type.split('/')[-1]
-                    final_pic_base64 = f"data:image/{file_extension};base64,{encoded}"
+                    final_pic_file_base64 = f"data:image/{file_extension};base64,{encoded}"
+                    final_pic_base64 = final_pic_file_base64
                 
                 update_user_profile(username, new_full, new_bio, final_pic_base64, new_gender, new_dob, new_acc_type, new_pass)
                 st.session_state.show_edit_profile = False
