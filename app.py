@@ -6,7 +6,7 @@ import logging
 import sys
 
 # Page config
-st.set_page_config(page_title="Instagram", page_icon="📷", layout="centered")
+st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
 
 def get_db_connection():
     """Connects to SQLite and automatically ensures the users table exists."""
@@ -80,11 +80,34 @@ if 'user' not in st.session_state:
 if 'auth_mode' not in st.session_state:
     st.session_state.auth_mode = "login"
 
-# --- INSTAGRAM-STYLE LOGIN / SIGNUP SCREEN ---
+# --- CUSTOM CSS FOR GREEN BUTTON ---
+st.markdown("""
+    <style>
+    /* Target the primary form submit button to make it green */
+    div.stFormSubmitButton > button {
+        background-color: #28a745 !important;
+        color: white !important;
+        border: none !important;
+    }
+    div.stFormSubmitButton > button:hover {
+        background-color: #218838 !important;
+        color: white !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- LOGIN / SIGNUP SCREEN ---
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<div style='text-align: center; font-size: 64px; margin-top: 30px; margin-bottom: 20px;'>📷</div>", unsafe_allow_html=True)
+        # Stylish Font Header replacing the camera
+        st.markdown("""
+            <div style='text-align: center; margin-top: 40px; margin-bottom: 25px;'>
+                <h1 style='font-family: "Brush Script MT", cursive, sans-serif; font-size: 48px; background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: bold;'>
+                    Noob Learning
+                </h1>
+            </div>
+        """, unsafe_allow_html=True)
         
         if st.session_state.auth_mode == "login":
             with st.form("insta_login_form"):
