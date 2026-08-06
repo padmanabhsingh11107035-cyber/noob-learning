@@ -118,7 +118,7 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
     if conn:
         cursor = conn.cursor()
         
-        # Dynamically verify all columns exist to avoid any operational SQLite errors
+        # Dynamically verify all columns exist and add them if missing
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
         if 'gender' not in columns:
@@ -131,17 +131,18 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
             cursor.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
         conn.commit()
 
-        cursor.execute("SELECT full_name, bio, profile_pic, gender, birth_date, account_type, password FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
         existing_user = cursor.fetchone()
         
         if existing_user:
-            final_full_name = new_full_name if new_full_name and new_full_name.strip() else existing_user['full_name']
-            final_bio = new_bio if new_bio and new_bio.strip() else existing_user['bio']
-            final_profile_pic = new_profile_pic if new_profile_pic is not None and new_profile_pic != '' else existing_user['profile_pic']
-            final_gender = new_gender if new_gender and new_gender.strip() else existing_user['gender']
-            final_birth_date = new_birth_date if new_birth_date and new_birth_date.strip() else existing_user['birth_date']
-            final_account_type = new_account_type if new_account_type and new_account_type.strip() else existing_user['account_type']
-            final_password = new_password if new_password and new_password.strip() else existing_user['password']
+            existing_dict = dict(existing_user)
+            final_full_name = new_full_name if new_full_name and new_full_name.strip() else existing_dict.get('full_name', '')
+            final_bio = new_bio if new_bio and new_bio.strip() else existing_dict.get('bio', '')
+            final_profile_pic = new_profile_pic if new_profile_pic is not None and new_profile_pic != '' else existing_dict.get('profile_pic', '')
+            final_gender = new_gender if new_gender and new_gender.strip() else existing_dict.get('gender', 'Other')
+            final_birth_date = new_birth_date if new_birth_date and new_birth_date.strip() else existing_dict.get('birth_date', '')
+            final_account_type = new_account_type if new_account_type and new_account_type.strip() else existing_dict.get('account_type', 'Public')
+            final_password = new_password if new_password and new_password.strip() else existing_dict.get('password', '')
             
             cursor.execute("""
                 UPDATE users 
@@ -165,7 +166,7 @@ if 'active_chat_user' not in st.session_state:
     st.session_state.active_chat_user = None
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME (Visibility & Layout Fixes)
+# 2. PREMIUM CUSTOM CSS THEME (Visibility & Button Text Fixes)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -198,10 +199,11 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
     }
 
-    /* Fully visible, high-contrast buttons with vivid green gradient and clear text */
+    /* Force button text, color, and background to be fully visible at all times without hover requirement */
     div.stButton > button {
         background: linear-gradient(135deg, #00E676 0%, #00C853 100%) !important;
         color: #0b0f19 !important;
+        -webkit-text-fill-color: #0b0f19 !important;
         font-weight: 800 !important;
         border: 2px solid #00FF88 !important;
         border-radius: 8px !important;
@@ -209,12 +211,20 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(0, 230, 118, 0.4) !important;
         opacity: 1 !important;
         visibility: visible !important;
-        transition: all 0.2s ease;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
+    
+    div.stButton > button p, div.stButton > button span {
+        color: #0b0f19 !important;
+        -webkit-text-fill-color: #0b0f19 !important;
+        font-weight: 800 !important;
+    }
+
     div.stButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 22px rgba(0, 230, 118, 0.6) !important;
         background: linear-gradient(135deg, #69F0AE 0%, #00E676 100%) !important;
+        color: #0b0f19 !important;
     }
     
     input, textarea, select {
