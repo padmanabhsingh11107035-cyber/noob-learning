@@ -5,15 +5,15 @@ import logging
 import sys
 
 # ==============================================================================
-# 0. LOGGING AND SYSTEM SETUP
+# 0. LOGGING & PAGE CONFIG
 # ==============================================================================
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger("NoobLearningApp")
 
 st.set_page_config(
-    page_title="Noob Learning Hub",
-    page_icon="🎓",
-    layout="centered",
+    page_title="Noob Learning",
+    page_icon="⚡",
+    layout="wide",
     initial_sidebar_state="collapsed"
 )
 
@@ -33,7 +33,6 @@ def init_db():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
-        # Create users table with all necessary columns
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,11 +44,9 @@ def init_db():
                 gender TEXT,
                 birth_date TEXT,
                 account_type TEXT,
-                profile_pic BLOB
+                profile_pic TEXT
             )
         """)
-        
-        # Create reels/posts table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS reels_posts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,8 +56,6 @@ def init_db():
                 timestamp TEXT
             )
         """)
-
-        # Create messages table for real-time chat
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +65,19 @@ def init_db():
                 timestamp TEXT
             )
         """)
+        # Insert default demo accounts if not exist
+        cursor.execute("SELECT COUNT(*) FROM users")
+        if cursor.fetchone()[0] == 0:
+            demo_users = [
+                ('saraah_robotics', 'password123', 'Saraah Robotics', 'Official Saraah Robotics Account 🚀 Autonomous Systems & AI', 18, 'Other', '01/01/2005', 'Creator'),
+                ('princehumperdinck87', 'password123', 'Prince Humperdinck', 'Exploring AI & Robotics 🤖 | Founder Noob Learning', 18, 'Male', '15/05/2005', 'Student'),
+                ('alex_dev', 'password123', 'Alex Rivera', 'Building cool Python & AI web apps 💻', 19, 'Male', '10/10/2004', 'Student'),
+                ('noob_coder', 'password123', 'Noob Coder', 'Learning Python step by step 🪀', 17, 'Female', '22/12/2006', 'Student')
+            ]
+            cursor.executemany("""
+                INSERT OR IGNORE INTO users (username, password, full_name, bio, age, gender, birth_date, account_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, demo_users)
         conn.commit()
         conn.close()
 
@@ -77,9 +85,9 @@ init_db()
 
 def get_current_ist_time():
     ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-    return datetime.datetime.now(ist_offset)
+    return datetime.datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S")
 
-# --- SESSION STATE INITIALIZATION ---
+# --- SESSION STATE ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user' not in st.session_state:
@@ -87,99 +95,68 @@ if 'user' not in st.session_state:
 if 'auth_mode' not in st.session_state:
     st.session_state.auth_mode = "login"
 if 'nav_option' not in st.session_state:
-    st.session_state.nav_option = "Home"
-if 'viewing_user' not in st.session_state:
-    st.session_state.viewing_user = None
+    st.session_state.nav_option = "Feed"
 if 'active_chat_user' not in st.session_state:
     st.session_state.active_chat_user = None
 
 # ==============================================================================
-# 2. CUSTOM CSS STYLING (Gen Z / Instagram Aesthetics)
+# 2. CUSTOM CSS THEME (Exact Dark Aesthetics & Layout)
 # ==============================================================================
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Billabong&family=Inter:wght@400;500;600&display=swap');
-
     .stApp {
-        background-color: #fafafa;
+        background-color: #0e1117;
+        color: #ffffff;
     }
     header {visibility: hidden;}
-
-    .insta-brand-title {
-        font-family: 'Billabong', cursive, sans-serif;
-        font-size: 3.5rem;
-        text-align: center;
-        color: #111;
-        margin-bottom: 0rem;
-        font-weight: normal;
-    }
-
-    div.stFormSubmitButton > button {
-        background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888) !important;
-        color: white !important;
+    
+    /* Buttons */
+    div.stButton > button {
+        background-color: #00C853 !important;
+        color: #0e1117 !important;
+        font-weight: 700 !important;
         border: none !important;
-        border-radius: 8px;
-        font-weight: 600;
+        border-radius: 8px !important;
+        padding: 0.5rem 1rem !important;
     }
-    div.stFormSubmitButton > button:hover {
-        opacity: 0.9;
+    div.stButton > button:hover {
+        opacity: 0.85;
+    }
+    
+    /* Input Fields */
+    input, textarea {
+        background-color: #161b22 !important;
         color: white !important;
+        border: 1px solid #30363d !important;
     }
-
-    .chat-bubble-user {
-        background: #0095f6;
+    
+    /* Card containers */
+    .element-container {
         color: white;
-        padding: 10px 14px;
-        border-radius: 15px 15px 2px 15px;
-        margin: 5px 0;
-        max-width: 70%;
-        float: right;
-        clear: both;
-    }
-    .chat-bubble-peer {
-        background: #efefef;
-        color: black;
-        padding: 10px 14px;
-        border-radius: 15px 15px 15px 2px;
-        margin: 5px 0;
-        max-width: 70%;
-        float: left;
-        clear: both;
-    }
-
-    .app-footer {
-        text-align: center;
-        color: #8e8e8e;
-        font-size: 0.75rem;
-        font-weight: 600;
-        letter-spacing: 1.5px;
-        margin-top: 4rem;
-        padding-bottom: 1rem;
-        text-transform: uppercase;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 3. AUTHENTICATION & ONBOARDING SCREEN
+# 3. AUTHENTICATION SCREEN
 # ==============================================================================
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 class='insta-brand-title'>Noob Learning</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 25px;'>Powered by Saraah Robotics</p>", unsafe_allow_html=True)
+        st.markdown("<h1 style='color: #ff4b4b; font-family: sans-serif; text-align: center;'>⚡ Noob Learning</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #888; font-size: 0.85rem; letter-spacing: 1px;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
         
         if st.session_state.auth_mode == "login":
             with st.form("login_form"):
-                username_input = st.text_input("Username", placeholder="Username or email")
-                password_input = st.text_input("Password", type="password", placeholder="Password")
-                submitted = st.form_submit_button("Log In", use_container_width=True)
+                username_in = st.text_input("Username or mobile number", placeholder="username")
+                password_in = st.text_input("Password", type="password", placeholder="••••••••")
+                submitted = st.form_submit_button("Log in", use_container_width=True)
                 
                 if submitted:
                     conn = get_db_connection()
                     if conn:
                         cursor = conn.cursor()
-                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username_input.strip(), password_input))
+                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username_in.strip().lower(), password_in))
                         row = cursor.fetchone()
                         conn.close()
                         if row:
@@ -194,187 +171,267 @@ if not st.session_state.logged_in:
                 st.rerun()
         else:
             with st.form("signup_form"):
-                st.markdown("<h4 style='text-align: center; color: #444;'>Join the Community</h4>", unsafe_allow_html=True)
-                new_username = st.text_input("Username", placeholder="Choose a unique username")
-                new_password = st.text_input("Password", type="password", placeholder="Create a password")
-                full_name = st.text_input("Full Name", placeholder="Your full name")
-                bio = st.text_area("Bio", placeholder="Tell us about yourself...")
-                age = st.number_input("Age", min_value=5, max_value=120, value=18)
-                gender = st.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"])
-                birth_date = st.text_input("Birth Date", placeholder="DD/MM/YYYY")
-                account_type = st.selectbox("Account Type", ["Student", "Creator", "Robotics Enthusiast", "Teacher"])
+                st.markdown("### Create an Account")
+                new_user = st.text_input("Username", placeholder="choose username").lower()
+                new_pass = st.text_input("Password", type="password")
+                full_name = st.text_input("Full Name")
+                bio = st.text_area("Bio")
                 
-                signup_submitted = st.form_submit_button("Sign Up", use_container_width=True)
-                
-                if signup_submitted:
-                    if new_username and new_password:
+                if st.form_submit_button("Sign Up", use_container_width=True):
+                    if new_user and new_pass:
                         conn = get_db_connection()
                         if conn:
                             try:
                                 cursor = conn.cursor()
                                 cursor.execute("""
-                                    INSERT INTO users (username, password, full_name, bio, age, gender, birth_date, account_type)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                """, (new_username.strip(), new_password, full_name, bio, age, gender, birth_date, account_type))
+                                    INSERT INTO users (username, password, full_name, bio, account_type)
+                                    VALUES (?, ?, ?, ?, ?)
+                                """, (new_user.strip(), new_pass, full_name, bio, 'Student'))
                                 conn.commit()
                                 conn.close()
-                                st.success("Account created successfully! Please log in.")
+                                st.success("Account created! Please log in.")
                                 st.session_state.auth_mode = "login"
                                 st.rerun()
                             except sqlite3.IntegrityError:
-                                st.error("Username already taken. Choose another.")
+                                st.error("Username already taken.")
                                 conn.close()
                     else:
-                        st.warning("Please fill in username and password.")
-                        
+                        st.warning("Fill in username and password.")
+            
             if st.button("Back to Login", use_container_width=True):
                 st.session_state.auth_mode = "login"
                 st.rerun()
-
-        st.markdown("<p class='app-footer'>Noob Learning Hub</p>", unsafe_allow_html=True)
+                
     st.stop()
 
 # ==============================================================================
-# 4. MAIN APP DASHBOARD
+# 4. MAIN APP DASHBOARD & TOP NAVIGATION BAR
 # ==============================================================================
 user = st.session_state.user
+username = user['username']
+first_letter = username[0].upper()
 
-st.markdown("<h2 style='text-align: center; font-family: \"Billabong\", cursive; font-size: 3rem;'>Noob Learning Hub</h2>", unsafe_allow_html=True)
+# Top Header Layout (Brand + Nav Tabs + Profile Widget matching Images 3 & 4)
+header_col1, header_col2, header_col3, header_col4, header_col5, header_col_profile = st.columns([2.5, 1, 1, 1, 1, 1.8])
 
-# Top Bar / Log Out
-col_l, col_r = st.columns([4, 1])
-with col_r:
-    if st.button("Log Out"):
-        st.session_state.logged_in = False
-        st.session_state.user = None
-        st.rerun()
+with header_col1:
+    st.markdown("""
+        <div>
+            <h3 style='margin:0; color:#ff4b4b; font-size: 1.5rem;'>⚡ Noob Learning</h3>
+            <p style='margin:0; font-size: 0.65rem; color:#888; letter-spacing:1px;'>POWERED BY SARAAH ROBOTICS</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-# Navigation Bar
-nav_cols = st.columns(5)
-with nav_cols[0]:
-    if st.button("🏠 Home", use_container_width=True):
-        st.session_state.nav_option = "Home"
-        st.session_state.viewing_user = None
+with header_col2:
+    if st.button("🏠 Feed", use_container_width=True):
+        st.session_state.nav_option = "Feed"
         st.session_state.active_chat_user = None
         st.rerun()
-with nav_cols[1]:
+with header_col3:
     if st.button("🎬 Reels", use_container_width=True):
         st.session_state.nav_option = "Reels"
-        st.session_state.viewing_user = None
         st.session_state.active_chat_user = None
         st.rerun()
-with nav_cols[2]:
-    if st.button("➕ Post", use_container_width=True):
-        st.session_state.nav_option = "Post"
-        st.session_state.viewing_user = None
-        st.session_state.active_chat_user = None
-        st.rerun()
-with nav_cols[3]:
+with header_col4:
     if st.button("💬 Chat", use_container_width=True):
         st.session_state.nav_option = "Chat"
-        st.session_state.viewing_user = None
         st.rerun()
-with nav_cols[4]:
+with header_col5:
     if st.button("👤 Profile", use_container_width=True):
         st.session_state.nav_option = "Profile"
-        st.session_state.viewing_user = user['username']
         st.session_state.active_chat_user = None
         st.rerun()
 
-st.markdown("<hr style='margin: 10px 0 20px 0;'>", unsafe_allow_html=True)
-current_tab = st.session_state.get('nav_option', 'Home')
+with header_col_profile:
+    prof_col_avatar, prof_col_name, prof_col_btn = st.columns([1, 2, 1.5])
+    with prof_col_avatar:
+        st.markdown(f"""
+            <div style="background-color: #00C853; color: #0e1117; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; margin-top: 5px;">
+                {first_letter}
+            </div>
+        """, unsafe_allow_html=True)
+    with prof_col_name:
+        st.markdown(f"<p style='color: white; font-weight: bold; font-size: 13px; margin: 8px 0 0 0;'>@{username}</p>", unsafe_allow_html=True)
+    with prof_col_btn:
+        if st.button("Log out", key="logout_top"):
+            st.session_state.logged_in = False
+            st.session_state.user = None
+            st.rerun()
 
-# --- TAB 1: HOME FEED ---
-if current_tab == "Home":
-    st.write("### Feed")
-    st.info("Welcome back! Check out what your peers are sharing in Noob Learning Hub.")
+st.markdown("<hr style='border: 0.5px solid #30363d; margin-top: 10px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+
+current_tab = st.session_state.get('nav_option', 'Feed')
+
+# ==============================================================================
+# TAB 1: FEED
+# ==============================================================================
+if current_tab == "Feed":
+    main_col, side_col = st.columns([2.2, 1.2])
     
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM reels_posts ORDER BY id DESC")
-        posts = cursor.fetchall()
-        conn.close()
-        
-        if not posts:
-            st.write("No posts or reels yet. Be the first to share something!")
-        for p in posts:
-            with st.container():
-                st.markdown(f"**@ {p['username']}**")
-                st.write(p['caption'])
-                st.markdown("<hr style='border: 0.5px solid #eee;'>", unsafe_allow_html=True)
+    with main_col:
+        st.markdown("### 📝 Share a Learning Update or Post")
+        with st.form("post_form"):
+            caption = st.text_area("What are you learning today?", placeholder="Share code snippets, robotics updates, or learning notes...")
+            uploaded_file = st.file_uploader("Upload Image or Video (Optional)", type=['jpg', 'png', 'mp4'])
+            if st.form_submit_button("Publish Post 🚀", use_container_width=True):
+                if caption.strip():
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO reels_posts (username, caption, media_type, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        """, (username, caption, "Post", get_current_ist_time()))
+                        conn.commit()
+                        conn.close()
+                        st.success("Published successfully!")
+                        st.rerun()
+                else:
+                    st.warning("Please add some text.")
 
-# --- TAB 2: REELS HUB ---
+        st.markdown("---")
+        
+        # Display Feed Posts
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM reels_posts ORDER BY id DESC")
+            posts = cursor.fetchall()
+            conn.close()
+            
+            for p in posts:
+                p_dict = dict(p)
+                st.markdown(f"""
+                    <div style="background-color: #161b22; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #30363d;">
+                        <span style="background: #00C853; color: #0e1117; padding: 2px 8px; border-radius: 50%; font-weight: bold;">{p_dict['username'][0].upper()}</span>
+                        <strong style="color: white; margin-left: 8px;">@{p_dict['username']}</strong>
+                        <p style="color: #888; font-size: 11px; margin-left: 36px; margin-top: -2px;">{p_dict['timestamp']}</p>
+                        <p style="color: #ddd; margin-top: 10px;">{p_dict['caption']}</p>
+                    </div>
+                """, unsafe_allow_html=True)
+
+    with side_col:
+        st.markdown("""
+            <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d;">
+                <h3 style="color: white; margin-top: 0;">🤖 Saraah Robotics Hub</h3>
+                <p style="color: #ccc; font-size: 14px;">Welcome to <b>Noob Learning</b>! Connect with peers, share robotics prototypes, upload reels, and exchange live messages with other learners.</p>
+                <hr style="border: 0.5px solid #30363d;">
+                <b style="color: white;">Platform Features:</b>
+                <ul style="color: #aaa; font-size: 13px; padding-left: 20px; line-height: 1.6;">
+                    <li>🎬 <b>Reels Hub:</b> Watch and post bite-sized learning reels.</li>
+                    <li>💬 <b>Live Chat:</b> Direct messaging with zero lag.</li>
+                    <li>👤 <b>Custom Profiles:</b> Public/Private badges & bios.</li>
+                </ul>
+            </div>
+        """, unsafe_allow_html=True)
+
+# ==============================================================================
+# TAB 2: REELS SECTION
+# ==============================================================================
 elif current_tab == "Reels":
-    st.write("### Reels Watcher")
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM reels_posts ORDER BY id DESC")
-        reels = cursor.fetchall()
-        conn.close()
-        
-        if not reels:
-            st.info("No reels available right now. Create one from the Post tab!")
-        for r in reels:
-            st.markdown(f"🎬 **@{r['username']}**")
-            st.markdown(f"> {r['caption']}")
-            st.markdown("---")
+    st.markdown("### 🎬 Reels Hub")
+    st.markdown("<p style='color: #888;'>Explore short educational videos and robotics clips created by the community.</p>", unsafe_allow_html=True)
+    
+    sub_tab_watch, sub_tab_create = st.tabs(["🎥 Watch Reels", "➕ Create Reel"])
+    
+    with sub_tab_watch:
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM reels_posts WHERE media_type = 'Reel' ORDER BY id DESC")
+            reels = cursor.fetchall()
+            conn.close()
+            
+            if not reels:
+                st.info("No reels available yet. Be the first creator to post one!")
+            for r in reels:
+                r_dict = dict(r)
+                st.markdown(f"""
+                    <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                            <div style="background-color: #ff4b4b; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                {r_dict['username'][0].upper()}
+                            </div>
+                            <div>
+                                <strong style="color: white;">@{r_dict['username']}</strong><br>
+                                <span style="color: #888; font-size: 11px;">{r_dict['timestamp']}</span>
+                            </div>
+                        </div>
+                        <p style="font-size: 15px; color: #eee; margin-top: 10px;">{r_dict['caption']}</p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+    with sub_tab_create:
+        st.markdown("### Upload a New Reel")
+        with st.form("create_reel_form"):
+            reel_caption = st.text_area("Reel Caption & Hashtags", placeholder="Explain your robotics build or python trick... #Robotics #Python")
+            reel_file = st.file_uploader("Upload Video File (MP4, MOV)", type=['mp4', 'mov'])
+            if st.form_submit_button("Publish Reel 🎬", use_container_width=True):
+                if reel_caption.strip():
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO reels_posts (username, caption, media_type, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        """, (username, reel_caption, "Reel", get_current_ist_time()))
+                        conn.commit()
+                        conn.close()
+                        st.success("Reel published successfully!")
+                        st.rerun()
+                else:
+                    st.warning("Please add a caption for your reel.")
 
-# --- TAB 3: CREATE POST / REEL ---
-elif current_tab == "Post":
-    st.write("### Create New Post or Reel")
-    with st.form("create_post_form"):
-        caption = st.text_area("Write a caption or description...")
-        media_type = st.selectbox("Content Type", ["Post", "Reel"])
-        submitted_post = st.form_submit_button("Publish Content", use_container_width=True)
-        
-        if submitted_post:
-            if caption.strip():
-                conn = get_db_connection()
-                if conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT INTO reels_posts (username, caption, media_type, timestamp)
-                        VALUES (?, ?, ?, ?)
-                    """, (user['username'], caption, media_type, str(get_current_ist_time())))
-                    conn.commit()
-                    conn.close()
-                    st.success("Successfully published!")
-                    st.rerun()
-            else:
-                st.warning("Please add a caption.")
-
-# --- TAB 4: CHAT HUB ---
+# ==============================================================================
+# TAB 3: CHAT SECTION (Exact match to Image 3)
+# ==============================================================================
 elif current_tab == "Chat":
     conn = get_db_connection()
-    all_users = []
+    peers = []
     if conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username != ?", (user['username'],))
-        all_users = cursor.fetchall()
+        cursor.execute("SELECT * FROM users WHERE username != ?", (username,))
+        peers = cursor.fetchall()
         conn.close()
 
     if st.session_state.active_chat_user is None:
-        st.write("### Direct Messages")
-        if not all_users:
-            st.info("No other users registered yet.")
-        for u in all_users:
-            col_c1, col_c2 = st.columns([3, 1])
-            with col_c1:
-                st.markdown(f"💬 **@{u['username']}** ({u['full_name'] or 'Member'})")
-            with col_c2:
-                if st.button("Chat", key=f"chat_with_{u['user_id']}"):
-                    st.session_state.active_chat_user = u['username']
+        st.markdown("### 💬 Direct Messages")
+        st.markdown("<p style='color: #888; font-size: 14px;'>Select a peer or mentor to start chatting instantly.</p>", unsafe_allow_html=True)
+        st.markdown("<hr style='border: 0.5px solid #30363d;'>", unsafe_allow_html=True)
+
+        for p in peers:
+            p_dict = dict(p)
+            avatar_char = p_dict['username'][0].upper()
+            
+            c_info, c_btn = st.columns([5, 1])
+            with c_info:
+                st.markdown(f"""
+                <div style="display: flex; align-items: flex-start; gap: 15px; padding: 8px 0;">
+                    <div style="background-color: #00C853; color: #0e1117; width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; flex-shrink: 0;">
+                        {avatar_char}
+                    </div>
+                    <div>
+                        <span style="color: white; font-weight: bold; font-size: 15px;">{p_dict.get('full_name') or p_dict['username']}</span> 
+                        <span style="color: #888; font-size: 13px;">(@{p_dict['username']})</span>
+                        <p style="color: #aaa; font-size: 13px; margin: 4px 0 0 0;">{p_dict.get('bio') or 'No bio added.'}</p>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            with c_btn:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Message 💬", key=f"chat_btn_{p_dict['username']}"):
+                    st.session_state.active_chat_user = p_dict['username']
                     st.rerun()
+            st.markdown("<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>", unsafe_allow_html=True)
+            
     else:
-        peer = st.session_state.active_chat_user
+        peer_name = st.session_state.active_chat_user
         if st.button("⬅ Back to Inbox"):
             st.session_state.active_chat_user = None
             st.rerun()
 
-        st.markdown(f"### Chat with @{peer}")
-        chat_box = st.container(height=350)
+        st.markdown(f"### Chat with @{peer_name}")
+        chat_container = st.container(height=400)
         
         conn = get_db_connection()
         if conn:
@@ -383,92 +440,64 @@ elif current_tab == "Chat":
                 SELECT * FROM messages 
                 WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
                 ORDER BY id ASC
-            """, (user['username'], peer, peer, user['username']))
-            msgs = cursor.fetchall()
+            """, (username, peer_name, peer_name, username))
+            messages = cursor.fetchall()
             conn.close()
             
-            with chat_box:
-                for m in msgs:
-                    if m['sender'] == user['username']:
-                        st.markdown(f"<div class='chat-bubble-user'>{m['message']}</div>", unsafe_allow_html=True)
+            with chat_container:
+                for msg in messages:
+                    m = dict(msg)
+                    if m['sender'] == username:
+                        st.markdown(f"<div style='text-align: right;'><span style='background: #00C853; color: #0e1117; padding: 8px 14px; border-radius: 12px; display: inline-block; margin: 4px 0; text-align: left;'>{m['message']}</span></div>", unsafe_allow_html=True)
                     else:
-                        st.markdown(f"<div class='chat-bubble-peer'>{m['message']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='text-align: left;'><span style='background: #21262d; color: white; padding: 8px 14px; border-radius: 12px; display: inline-block; margin: 4px 0;'>{m['message']}</span></div>", unsafe_allow_html=True)
 
-        user_message = st.chat_input(f"Message @{peer}...")
-        if user_message:
+        new_msg = st.chat_input(f"Message @{peer_name}...")
+        if new_msg:
             conn = get_db_connection()
             if conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO messages (sender, receiver, message, timestamp)
                     VALUES (?, ?, ?, ?)
-                """, (user['username'], peer, user_message, str(get_current_ist_time())))
+                """, (username, peer_name, new_msg, get_current_ist_time()))
                 conn.commit()
                 conn.close()
                 st.rerun()
 
-# --- TAB 5: PROFILE & SETTINGS HUB ---
+# ==============================================================================
+# TAB 4: PROFILE SECTION
+# ==============================================================================
 elif current_tab == "Profile":
-    target_username = st.session_state.viewing_user or user['username']
+    st.markdown(f"""
+        <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
+            <div style="display: flex; align-items: center; gap: 20px;">
+                <div style="background-color: #00C853; color: #0e1117; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;">
+                    {first_letter}
+                </div>
+                <div>
+                    <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
+                    <p style="color: #00C853; font-weight: 500; margin: 2px 0;">Account Type: {user.get('account_type', 'Student')}</p>
+                    <p style="color: #ccc; margin: 5px 0 0 0;">{user.get('bio') or 'No bio added yet.'}</p>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
-    conn = get_db_connection()
-    profile_data = None
-    if conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = ?", (target_username,))
-        row = cursor.fetchone()
-        if row:
-            profile_data = dict(row)
-        conn.close()
+    with st.expander("⚙️ Edit Profile Settings"):
+        with st.form("edit_profile"):
+            new_full = st.text_input("Full Name", value=user.get('full_name', ''))
+            new_bio = st.text_area("Bio", value=user.get('bio', ''))
+            if st.form_submit_button("Save Profile Settings"):
+                conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE users SET full_name = ?, bio = ? WHERE username = ?", (new_full, new_bio, username))
+                    conn.commit()
+                    conn.close()
+                    user['full_name'] = new_full
+                    user['bio'] = new_bio
+                    st.success("Updated successfully!")
+                    st.rerun()
 
-    if profile_data:
-        is_owner = (profile_data['username'] == user['username'])
-        
-        col_img, col_info = st.columns([1, 2])
-        with col_img:
-            st.markdown("<h1>👤</h1>", unsafe_allow_html=True)
-        with col_info:
-            st.markdown(f"### @{profile_data['username']}")
-            st.markdown(f"**{profile_data.get('full_name') or profile_data['username']}** • *{profile_data.get('account_type', 'Member')}*")
-            st.markdown(f"{profile_data.get('bio') or 'No bio added.'}")
-
-        if is_owner:
-            with st.expander("⚙️ Edit Profile Settings"):
-                with st.form("update_profile_form"):
-                    new_full_name = st.text_input("Full Name", value=profile_data.get('full_name', ''))
-                    new_bio = st.text_area("Bio", value=profile_data.get('bio', ''))
-                    new_age = st.number_input("Age", min_value=5, max_value=120, value=int(profile_data.get('age') or 18))
-                    
-                    if st.form_submit_button("Save Changes"):
-                        conn = get_db_connection()
-                        if conn:
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                UPDATE users SET full_name = ?, bio = ?, age = ? WHERE user_id = ?
-                            """, (new_full_name, new_bio, new_age, user['user_id']))
-                            conn.commit()
-                            conn.close()
-                            
-                            user['full_name'] = new_full_name
-                            user['bio'] = new_bio
-                            user['age'] = new_age
-                            
-                            st.success("Profile updated successfully!")
-                            st.rerun()
-
-        st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-        st.write("🖼️ **User Posts & Reels**")
-        
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM reels_posts WHERE username = ? ORDER BY id DESC", (target_username,))
-            user_reels = cursor.fetchall()
-            conn.close()
-            
-            if not user_reels:
-                st.info("This user has not posted anything yet.")
-            for ur in user_reels:
-                st.markdown(f"• {ur['caption']} *({ur['media_type']})*")
-
-st.markdown("<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #555; font-size: 0.7rem; letter-spacing: 2px; margin-top: 5rem;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
