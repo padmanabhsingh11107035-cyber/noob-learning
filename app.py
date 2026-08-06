@@ -1,84 +1,26 @@
 import streamlit as st
-import sqlite3
+import mysql.connector
 import datetime
 import base64
 import logging
 import sys
 
 # Page config
-st.set_page_config(page_title="Noob Learning", page_icon="😊", layout="centered")
+st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
 
 def get_db_connection():
-    """Connects to SQLite and automatically ensures the users table and all columns exist."""
+    """Connects to MySQL database."""
     try:
-        conn = sqlite3.connect('database.db', check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE,
-                password TEXT,
-                name TEXT,
-                bio TEXT,
-                age INTEGER,
-                gender TEXT,
-                birth_date TEXT,
-                profile_pic BLOB
-            )
-        """)
-        conn.commit()
-        
-        # Automatically add any missing columns to an existing table
-        cursor.execute("PRAGMA table_info(users)")
-        existing_cols = [row[1] for row in cursor.fetchall()]
-        
-        col_definitions = {
-            'username': 'TEXT UNIQUE',
-            'password': 'TEXT',
-            'name': 'TEXT',
-            'bio': 'TEXT',
-            'age': 'INTEGER',
-            'gender': 'TEXT',
-            'birth_date': 'TEXT',
-            'profile_pic': 'BLOB'
-        }
-        
-        for col, col_type in col_definitions.items():
-            if col not in existing_cols:
-                try:
-                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
-                    conn.commit()
-                except:
-                    pass
-
-        return "sqlite", conn
+        conn = mysql.connector.connect(
+            host="localhost",       # Change if your MySQL is hosted elsewhere
+            user="root",            # Your MySQL username
+            password="YOUR_PASSWORD", # Your MySQL password
+            database="YOUR_DATABASE" # Your MySQL database name
+        )
+        return conn
     except Exception as e:
         st.error(f"Database connection error: {e}")
-        return None, None
-
-def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
-    db_type, conn = get_db_connection()
-    if not conn:
-        st.error("Database connection failed.")
-        return False
-    
-    try:
-        cursor = conn.cursor()
-        query = """
-            UPDATE users 
-            SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
-            WHERE user_id = ?
-        """
-        cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
-        conn.commit()
-        return True
-    except Exception as e:
-        st.error(f"SQL Update Failed: {e}")
-        return False
-    finally:
-        conn.close()
+        return None
 
 # Initialize session state for authentication
 if 'logged_in' not in st.session_state:
@@ -124,16 +66,17 @@ if not st.session_state.logged_in:
                 login_submitted = st.form_submit_button("Log in", use_container_width=True)
                 
                 if login_submitted:
-                    db_type, conn = get_db_connection()
+                    conn = get_db_connection()
                     if conn:
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+                        cursor = conn.cursor(dictionary=True)
+                        cursor.execute("SELECT * FROM users WHERE username = %s AND password = %s", (username, password))
                         user_row = cursor.fetchone()
+                        cursor.close()
                         conn.close()
                         
                         if user_row:
                             st.session_state.logged_in = True
-                            st.session_state.user = dict(user_row)
+                            st.session_state.user = user_row
                             st.rerun()
                         else:
                             st.error("Incorrect username or password.")
@@ -157,19 +100,20 @@ if not st.session_state.logged_in:
                 
                 if signup_submitted:
                     if new_user and new_pass:
-                        db_type, conn = get_db_connection()
+                        conn = get_db_connection()
                         if conn:
                             try:
                                 cursor = conn.cursor()
-                                cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (?, ?, ?, ?)", 
+                                cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (%s, %s, %s, %s)", 
                                                (new_user, new_pass, new_user, "Noob Learning User"))
                                 conn.commit()
+                                cursor.close()
                                 conn.close()
                                 st.success("Account created successfully!")
                                 st.session_state.auth_mode = "login"
                                 st.rerun()
-                            except sqlite3.IntegrityError:
-                                st.error("Username already exists.")
+                            except mysql.connector.Error as err:
+                                st.error(f"Error: {err}")
                                 conn.close()
                     else:
                         st.warning("Please fill in all fields.")
@@ -186,15 +130,16 @@ if not st.session_state.logged_in:
 user = st.session_state.user
 profile_id = user.get('user_id')
 
-db_type, conn = get_db_connection()
+conn = get_db_connection()
 profile_user = None
 if conn:
     try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE user_id = ?", (profile_id,))
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM users WHERE user_id = %s", (profile_id,))
         row = cursor.fetchone()
         if row:
-            profile_user = dict(row)
+            profile_user = row
+        cursor.close()
     finally:
         conn.close()
 
@@ -219,11 +164,12 @@ if profile_user.get('user_id') == user.get('user_id'):
             if st.button("Save Profile Picture", key="save_profile_pic_btn"):
                 try:
                     pic_bytes = uploaded_pic.getvalue()
-                    db_type, conn = get_db_connection()
+                    conn = get_db_connection()
                     if conn:
                         cursor = conn.cursor()
-                        cursor.execute("UPDATE users SET profile_pic = ? WHERE user_id = ?", (pic_bytes, user['user_id']))
+                        cursor.execute("UPDATE users SET profile_pic = %s WHERE user_id = %s", (pic_bytes, user['user_id']))
                         conn.commit()
+                        cursor.close()
                         conn.close()
                     st.success("Profile picture updated successfully! Refreshing...")
                     st.rerun()
@@ -262,14 +208,24 @@ if profile_user.get('user_id') == user.get('user_id'):
             )
 
             if st.form_submit_button("Update Profile"):
-                success = safe_update_user_profile(
-                    user['user_id'], 
-                    new_name, 
-                    new_bio, 
-                    new_age, 
-                    new_gender, 
-                    new_birth_date
-                )
+                conn = get_db_connection()
+                success = False
+                if conn:
+                    try:
+                        cursor = conn.cursor()
+                        query = """
+                            UPDATE users 
+                            SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s 
+                            WHERE user_id = %s
+                        """
+                        cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user['user_id']))
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        success = True
+                    except Exception as e:
+                        st.error(f"SQL Update Failed: {e}")
+                
                 if success:
                     user['name'] = new_name
                     user['bio'] = new_bio
