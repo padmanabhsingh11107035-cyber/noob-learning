@@ -47,6 +47,16 @@ def init_db():
                 profile_pic TEXT
             )
         """)
+        # Ensure new columns exist if table was already created
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [col['name'] for col in cursor.fetchall()]
+        if 'gender' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
+        if 'birth_date' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
+        if 'account_type' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS reels_posts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,14 +78,14 @@ def init_db():
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:
             demo_users = [
-                ('saraah_robotics', 'password123', 'Saraah Robotics', 'Official Saraah Robotics Account 🚀 Autonomous Systems & AI', 18, 'Other', '01/01/2005', 'Creator'),
-                ('princehumperdinck87', 'password123', 'Prince Humperdinck', 'Exploring AI & Robotics 🤖 | Founder Noob Learning', 18, 'Male', '15/05/2005', 'Student'),
-                ('alex_dev', 'password123', 'Alex Rivera', 'Building cool Python & AI web apps 💻', 19, 'Male', '10/10/2004', 'Student'),
-                ('noob_coder', 'password123', 'Noob Coder', 'Learning Python step by step 🪀', 17, 'Female', '22/12/2006', 'Student')
+                ('saraah_robotics', 'password123', 'Saraah Robotics', 'Official Saraah Robotics Account 🚀 Autonomous Systems & AI', 18, 'Other', '2005-01-01', 'Public', ''),
+                ('princehumperdinck87', 'password123', 'Prince Humperdinck', 'Exploring AI & Robotics 🤖 | Founder Noob Learning', 18, 'Male', '2005-05-15', 'Public', ''),
+                ('alex_dev', 'password123', 'Alex Rivera', 'Building cool Python & AI web apps 💻', 19, 'Male', '2004-10-10', 'Private', ''),
+                ('noob_coder', 'password123', 'Noob Coder', 'Learning Python step by step 🪀', 17, 'Female', '2006-12-22', 'Public', '')
             ]
             cursor.executemany("""
-                INSERT OR IGNORE INTO users (username, password, full_name, bio, age, gender, birth_date, account_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO users (username, password, full_name, bio, age, gender, birth_date, account_type, profile_pic)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, demo_users)
         conn.commit()
         conn.close()
@@ -89,34 +99,38 @@ def get_current_ist_time():
 # ==============================================================================
 # USER REGISTRATION & PROFILE UPDATE LOGIC WITH FALLBACK
 # ==============================================================================
-def register_user(username, password, full_name, bio, profile_pic):
+def register_user(username, password, full_name, bio, profile_pic, gender, birth_date, account_type):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT OR REPLACE INTO users (username, password, full_name, bio, profile_pic)
-            VALUES (?, ?, ?, ?, ?)
-        """, (username, password, full_name, bio, profile_pic))
+            INSERT OR REPLACE INTO users (username, password, full_name, bio, profile_pic, gender, birth_date, account_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (username, password, full_name, bio, profile_pic, gender, birth_date, account_type))
         conn.commit()
         conn.close()
 
-def update_user_profile(username, new_full_name, new_bio, new_profile_pic):
+def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_gender, new_birth_date, new_account_type, new_password):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT full_name, bio, profile_pic FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT full_name, bio, profile_pic, gender, birth_date, account_type, password FROM users WHERE username = ?", (username,))
         existing_user = cursor.fetchone()
         
         if existing_user:
             final_full_name = new_full_name if new_full_name and new_full_name.strip() else existing_user['full_name']
             final_bio = new_bio if new_bio and new_bio.strip() else existing_user['bio']
             final_profile_pic = new_profile_pic if new_profile_pic and new_profile_pic.strip() else existing_user['profile_pic']
+            final_gender = new_gender if new_gender and new_gender.strip() else existing_user['gender']
+            final_birth_date = new_birth_date if new_birth_date and new_birth_date.strip() else existing_user['birth_date']
+            final_account_type = new_account_type if new_account_type and new_account_type.strip() else existing_user['account_type']
+            final_password = new_password if new_password and new_password.strip() else existing_user['password']
             
             cursor.execute("""
                 UPDATE users 
-                SET full_name = ?, bio = ?, profile_pic = ?
+                SET full_name = ?, bio = ?, profile_pic = ?, gender = ?, birth_date = ?, account_type = ?, password = ?
                 WHERE username = ?
-            """, (final_full_name, final_bio, final_profile_pic, username))
+            """, (final_full_name, final_bio, final_profile_pic, final_gender, final_birth_date, final_account_type, final_password, username))
             
             conn.commit()
         conn.close()
@@ -144,7 +158,6 @@ st.markdown("""
     }
     header {visibility: hidden;}
     
-    /* Premium Box Styling inspired by provided design */
     .auth-container {
         max-width: 380px;
         margin: 40px auto;
@@ -168,7 +181,6 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
     }
 
-    /* Primary Buttons inside Auth */
     div.stButton > button {
         background: linear-gradient(135deg, #00C853 0%, #009624) !important;
         color: #0e1117 !important;
@@ -184,16 +196,11 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(0, 200, 83, 0.4);
     }
     
-    /* Input Fields styling */
-    input, textarea {
+    input, textarea, select {
         background-color: rgba(13, 17, 23, 0.7) !important;
         color: white !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
         border-radius: 8px !important;
-    }
-    input:focus {
-        border-color: #00C853 !important;
-        box-shadow: 0 0 0 2px rgba(0, 200, 83, 0.2) !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -205,10 +212,8 @@ if not st.session_state.logged_in:
     _, center_col, _ = st.columns([1, 1.2, 1])
     
     with center_col:
-        # Main Box Container
         st.markdown("<div class='auth-container'>", unsafe_allow_html=True)
         
-        # Logo / Brand Header
         st.markdown("""
             <div style="text-align: center; margin-bottom: 25px;">
                 <h1 style="font-family: 'Brush Script MT', cursive, sans-serif; font-size: 3rem; font-weight: normal; margin: 0; background: linear-gradient(45deg, #ffffff, #a5d6a7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1px;">Noob Learning</h1>
@@ -236,7 +241,6 @@ if not st.session_state.logged_in:
                         else:
                             st.error("Invalid username or password.")
             
-            # Divider 'OR'
             st.markdown("""
                 <div style="display: flex; align-items: center; text-align: center; margin: 20px 0; color: #8b949e; font-size: 13px;">
                     <div style="flex: 1; border-bottom: 1px solid rgba(255,255,255,0.1);"></div>
@@ -245,16 +249,14 @@ if not st.session_state.logged_in:
                 </div>
             """, unsafe_allow_html=True)
             
-            # Additional Links inside Main Box
             st.markdown("""
                 <div style="text-align: center; margin-top: 15px;">
                     <a href="#" style="color: #58a6ff; text-decoration: none; font-size: 13px;">Forgot password?</a>
                 </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("</div>", unsafe_allow_html=True)  # Close main box
+            st.markdown("</div>", unsafe_allow_html=True)
             
-            # Secondary Bottom Box for Signup toggle
             st.markdown("<div class='auth-footer-box'>", unsafe_allow_html=True)
             col_txt, col_btn = st.columns([2.5, 1])
             with col_txt:
@@ -266,18 +268,20 @@ if not st.session_state.logged_in:
             st.markdown("</div>", unsafe_allow_html=True)
             
         else:
-            # Signup Form inside Main Box
             with st.form("signup_form"):
                 st.markdown("<h3 style='text-align: center; font-size: 1.2rem; margin-bottom: 15px; color: #fff;'>Create a New Account</h3>", unsafe_allow_html=True)
                 new_user = st.text_input("Username", placeholder="Choose username").lower()
                 new_pass = st.text_input("Password", type="password", placeholder="Password")
                 full_name = st.text_input("Full Name", placeholder="Full Name")
+                gender_in = st.selectbox("Gender", ["Male", "Female", "Other"])
+                dob_in = st.text_input("Date of Birth", placeholder="YYYY-MM-DD")
+                acc_type_in = st.selectbox("Account Type", ["Public", "Private"])
                 bio = st.text_area("Bio", placeholder="Short Bio")
                 
                 if st.form_submit_button("Sign Up", use_container_width=True):
                     if new_user and new_pass:
                         try:
-                            register_user(new_user.strip(), new_pass, full_name, bio, "")
+                            register_user(new_user.strip(), new_pass, full_name, bio, "", gender_in, dob_in, acc_type_in)
                             st.success("Account created! Please log in.")
                             st.session_state.auth_mode = "login"
                             st.rerun()
@@ -286,9 +290,8 @@ if not st.session_state.logged_in:
                     else:
                         st.warning("Fill in username and password.")
             
-            st.markdown("</div>", unsafe_allow_html=True)  # Close main box
+            st.markdown("</div>", unsafe_allow_html=True)
             
-            # Secondary Bottom Box for Login toggle
             st.markdown("<div class='auth-footer-box'>", unsafe_allow_html=True)
             col_txt2, col_btn2 = st.columns([2.2, 1.2])
             with col_txt2:
@@ -390,16 +393,27 @@ if current_tab == "Feed":
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM reels_posts ORDER BY id DESC")
+            # Fetch all posts along with authors' account types to enforce privacy rule
+            cursor.execute("""
+                SELECT p.*, u.account_type 
+                FROM reels_posts p 
+                JOIN users u ON p.username = u.username 
+                ORDER BY p.id DESC
+            """)
             posts = cursor.fetchall()
             conn.close()
             
             for p in posts:
                 p_dict = dict(p)
+                # Privacy rule: If account is Private, only show if it's the current user's post (or if friends/followers mechanism applies, here current user or public)
+                if p_dict['account_type'] == 'Private' and p_dict['username'] != username:
+                    continue  # Hide private posts from non-owners
+                
                 st.markdown(f"""
                     <div style="background-color: #161b22; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #30363d;">
                         <span style="background: #00C853; color: #0e1117; padding: 2px 8px; border-radius: 50%; font-weight: bold;">{p_dict['username'][0].upper()}</span>
                         <strong style="color: white; margin-left: 8px;">@{p_dict['username']}</strong>
+                        <span style="color: #888; font-size: 11px; margin-left: 10px;">({p_dict['account_type']})</span>
                         <p style="color: #888; font-size: 11px; margin-left: 36px; margin-top: -2px;">{p_dict['timestamp']}</p>
                         <p style="color: #ddd; margin-top: 10px;">{p_dict['caption']}</p>
                     </div>
@@ -433,14 +447,21 @@ elif current_tab == "Reels":
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM reels_posts WHERE media_type = 'Reel' ORDER BY id DESC")
+            cursor.execute("""
+                SELECT r.*, u.account_type 
+                FROM reels_posts r 
+                JOIN users u ON r.username = u.username 
+                WHERE r.media_type = 'Reel' 
+                ORDER BY r.id DESC
+            """)
             reels = cursor.fetchall()
             conn.close()
             
-            if not reels:
-                st.info("No reels available yet. Be the first creator to post one!")
-            for r in reels:
-                r_dict = dict(r)
+            filtered_reels = [dict(r) for r in reels if r['account_type'] == 'Public' or r['username'] == username]
+            
+            if not filtered_reels:
+                st.info("No reels available yet or accounts are private.")
+            for r_dict in filtered_reels:
                 st.markdown(f"""
                     <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 20px;">
                         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
@@ -448,7 +469,7 @@ elif current_tab == "Reels":
                                 {r_dict['username'][0].upper()}
                             </div>
                             <div>
-                                <strong style="color: white;">@{r_dict['username']}</strong><br>
+                                <strong style="color: white;">@{r_dict['username']}</strong> <span style="font-size:11px; color:#888;">({r_dict['account_type']})</span><br>
                                 <span style="color: #888; font-size: 11px;">{r_dict['timestamp']}</span>
                             </div>
                         </div>
@@ -497,7 +518,13 @@ elif current_tab == "Chat":
         
         st.markdown("<hr style='border: 0.5px solid #30363d;'>", unsafe_allow_html=True)
         
-        filtered_peers = [dict(p) for p in peers if search_query in p['username'].lower() or (p.get('full_name') and search_query in p['full_name'].lower())] if search_query else [dict(p) for p in peers]
+        filtered_peers = []
+        for p in peers:
+            p_dict = dict(p)
+            uname = p_dict.get('username') or ''
+            fname = p_dict.get('full_name') or ''
+            if not search_query or search_query in uname.lower() or search_query in fname.lower():
+                filtered_peers.append(p_dict)
         
         if search_query:
             st.markdown(f"**Search Results for '{search_query}' ({len(filtered_peers)} found):**")
@@ -511,6 +538,7 @@ elif current_tab == "Chat":
             avatar_char = p_dict['username'][0].upper()
             display_name = p_dict.get('full_name') or p_dict['username']
             profile_pic = p_dict.get('profile_pic')
+            acc_type = p_dict.get('account_type', 'Public')
             
             c_info, c_btn = st.columns([5, 1])
             with c_info:
@@ -525,6 +553,7 @@ elif current_tab == "Chat":
                     <div>
                         <span style="color: white; font-weight: bold; font-size: 15px;">{display_name}</span> 
                         <span style="color: #b0b8c1; font-size: 13px;">(@{p_dict['username']})</span>
+                        <span style="background: #21262d; color: #888; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 5px;">{acc_type}</span>
                         <p style="color: #aaa; font-size: 13px; margin: 4px 0 0 0;">{p_dict.get('bio') or 'No bio added.'}</p>
                     </div>
                 </div>
@@ -601,7 +630,7 @@ elif current_tab == "Profile":
                 </div>
                 <div>
                     <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
-                    <p style="color: #00C853; font-weight: 500; margin: 2px 0;">Account Type: {user.get('account_type', 'Student')}</p>
+                    <p style="color: #00C853; font-weight: 500; margin: 2px 0;">Account Type: {user.get('account_type', 'Public')} | Gender: {user.get('gender', 'N/A')} | DOB: {user.get('birth_date', 'N/A')}</p>
                     <p style="color: #ccc; margin: 5px 0 0 0;">{user.get('bio') or 'No bio added yet.'}</p>
                 </div>
             </div>
@@ -611,12 +640,25 @@ elif current_tab == "Profile":
     with st.expander("⚙️ Edit Profile Settings"):
         with st.form("edit_profile"):
             new_full = st.text_input("Full Name", value=user.get('full_name', ''))
+            gender_options = ["Male", "Female", "Other"]
+            current_gender = user.get('gender', 'Other')
+            gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 2
+            new_gender = st.selectbox("Gender", gender_options, index=gender_idx)
+            
+            new_dob = st.text_input("Date of Birth (YYYY-MM-DD)", value=user.get('birth_date', ''))
+            
+            acc_options = ["Public", "Private"]
+            current_acc = user.get('account_type', 'Public')
+            acc_idx = acc_options.index(current_acc) if current_acc in acc_options else 0
+            new_acc_type = st.selectbox("Account Type (Public = Everyone, Private = Followers/Friends only)", acc_options, index=acc_idx)
+            
             new_bio = st.text_area("Bio", value=user.get('bio', ''))
             new_pic = st.text_input("Profile Picture URL (Optional)", value=user.get('profile_pic', ''))
+            new_pass = st.text_input("Change Password (leave blank to keep current)", type="password", value="")
             
             if st.form_submit_button("Save Profile Settings"):
-                update_user_profile(username, new_full, new_bio, new_pic)
-                st.success("Profile updated successfully! Missing fields kept their previous values.")
+                update_user_profile(username, new_full, new_bio, new_pic, new_gender, new_dob, new_acc_type, new_pass)
+                st.success("Profile updated successfully! Unchanged fields retained their previous values.")
                 st.rerun()
 
 st.markdown("<p style='text-align: center; color: #555; font-size: 0.7rem; letter-spacing: 2px; margin-top: 5rem;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
