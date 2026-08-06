@@ -4,7 +4,11 @@ import datetime
 import base64
 import logging
 import sys
-
+from zoneinfo import ZoneInfo  
+def get_current_ist_time():
+    dt_utc = datetime.datetime.now(datetime.timezone.utc)
+    dt_ist = dt_utc.astimezone(ZoneInfo("Asia/Kolkata"))
+    return dt_ist
 # Page config
 st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
 
