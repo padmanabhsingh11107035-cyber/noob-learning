@@ -97,7 +97,7 @@ def get_current_ist_time():
     return datetime.datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S")
 
 # ==============================================================================
-# USER REGISTRATION & PROFILE UPDATE LOGIC WITH FALLBACK
+# USER REGISTRATION & PROFILE UPDATE LOGIC WITH SAFE MIGRATION
 # ==============================================================================
 def register_user(username, password, full_name, bio, profile_pic, gender, birth_date, account_type):
     conn = get_db_connection()
@@ -114,6 +114,18 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
+        
+        # Dynamically check table columns to prevent operational errors if database file is older
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [col['name'] for col in cursor.fetchall()]
+        if 'gender' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
+        if 'birth_date' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
+        if 'account_type' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
+        conn.commit()
+
         cursor.execute("SELECT full_name, bio, profile_pic, gender, birth_date, account_type, password FROM users WHERE username = ?", (username,))
         existing_user = cursor.fetchone()
         
@@ -148,7 +160,7 @@ if 'active_chat_user' not in st.session_state:
     st.session_state.active_chat_user = None
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME (Instagram Box Style Layout)
+# 2. PREMIUM CUSTOM CSS THEME (Instagram Box Style Layout & Label Fixes)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -201,6 +213,13 @@ st.markdown("""
         color: white !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
         border-radius: 8px !important;
+    }
+
+    /* Force Streamlit form input labels to be clearly visible and high contrast */
+    .stTextInput label, .stSelectbox label, .stTextArea label {
+        color: #f0f6fc !important;
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -393,7 +412,6 @@ if current_tab == "Feed":
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
-            # Fetch all posts along with authors' account types to enforce privacy rule
             cursor.execute("""
                 SELECT p.*, u.account_type 
                 FROM reels_posts p 
@@ -405,9 +423,8 @@ if current_tab == "Feed":
             
             for p in posts:
                 p_dict = dict(p)
-                # Privacy rule: If account is Private, only show if it's the current user's post (or if friends/followers mechanism applies, here current user or public)
                 if p_dict['account_type'] == 'Private' and p_dict['username'] != username:
-                    continue  # Hide private posts from non-owners
+                    continue
                 
                 st.markdown(f"""
                     <div style="background-color: #161b22; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #30363d;">
@@ -615,6 +632,18 @@ elif current_tab == "Profile":
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
+        
+        # Ensure database table columns exist safely before querying user profile
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [col['name'] for col in cursor.fetchall()]
+        if 'gender' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
+        if 'birth_date' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
+        if 'account_type' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
+        conn.commit()
+
         cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
         row = cursor.fetchone()
         if row:
@@ -638,23 +667,25 @@ elif current_tab == "Profile":
     """, unsafe_allow_html=True)
     
     with st.expander("⚙️ Edit Profile Settings"):
+        st.markdown("<p style='color: #8b949e; font-size: 0.9rem;'>Update your personal details below. Unchanged fields will automatically retain your existing data.</p>", unsafe_allow_html=True)
         with st.form("edit_profile"):
-            new_full = st.text_input("Full Name", value=user.get('full_name', ''))
+            new_full = st.text_input("👤 Full Name", value=user.get('full_name', ''))
+            
             gender_options = ["Male", "Female", "Other"]
             current_gender = user.get('gender', 'Other')
             gender_idx = gender_options.index(current_gender) if current_gender in gender_options else 2
-            new_gender = st.selectbox("Gender", gender_options, index=gender_idx)
+            new_gender = st.selectbox("⚧ Gender", gender_options, index=gender_idx)
             
-            new_dob = st.text_input("Date of Birth (YYYY-MM-DD)", value=user.get('birth_date', ''))
+            new_dob = st.text_input("📅 Date of Birth (YYYY-MM-DD)", value=user.get('birth_date', ''))
             
             acc_options = ["Public", "Private"]
             current_acc = user.get('account_type', 'Public')
             acc_idx = acc_options.index(current_acc) if current_acc in acc_options else 0
-            new_acc_type = st.selectbox("Account Type (Public = Everyone, Private = Followers/Friends only)", acc_options, index=acc_idx)
+            new_acc_type = st.selectbox("🔒 Account Type (Public = Everyone, Private = Followers/Friends only)", acc_options, index=acc_idx)
             
-            new_bio = st.text_area("Bio", value=user.get('bio', ''))
-            new_pic = st.text_input("Profile Picture URL (Optional)", value=user.get('profile_pic', ''))
-            new_pass = st.text_input("Change Password (leave blank to keep current)", type="password", value="")
+            new_bio = st.text_area("📝 Bio", value=user.get('bio', ''))
+            new_pic = st.text_input("🖼️ Profile Picture URL (Optional)", value=user.get('profile_pic', ''))
+            new_pass = st.text_input("🔑 Change Password (leave blank to keep current)", type="password", value="")
             
             if st.form_submit_button("Save Profile Settings"):
                 update_user_profile(username, new_full, new_bio, new_pic, new_gender, new_dob, new_acc_type, new_pass)
