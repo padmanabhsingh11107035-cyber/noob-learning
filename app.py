@@ -590,7 +590,7 @@ elif current_tab == "Reels":
                     st.warning("Please add a caption for your reel.")
 
 # ==============================================================================
-# TAB 3: CHAT & USER SEARCH SECTION (CLEAN STREAMLIT NATIVE CHAT)
+# TAB 3: CHAT & USER SEARCH SECTION
 # ==============================================================================
 elif current_tab == "Chat":
     conn = get_db_connection()
@@ -714,8 +714,6 @@ elif current_tab == "Chat":
             messages = cursor.fetchall()
             conn.close()
 
-        # FIXED: Utilizing Streamlit's native chat interface containers (`st.chat_message`) 
-        # instead of raw unrendered HTML string tags so messages render properly as a live chat.
         chat_container = st.container(height=420)
         with chat_container:
             if not messages:
@@ -730,7 +728,8 @@ elif current_tab == "Chat":
                         st.write(m['message'])
                         st.caption(f"{time_only} ✓✓")
                 else:
-                    with st.chat_message("assistant", avatar="🤖"):
+                    peer_initial = peer_name[0].upper()
+                    with st.chat_message("assistant", avatar=peer_initial):
                         st.write(m['message'])
                         st.caption(time_only)
         
@@ -756,7 +755,7 @@ elif current_tab == "Chat":
                     st.rerun()
 
 # ==============================================================================
-# TAB 4: PROFILE SECTION
+# TAB 4: PROFILE SECTION (WITH EDIT & DELETE ACCOUNT FEATURE)
 # ==============================================================================
 elif current_tab == "Profile":
     conn = get_db_connection()
@@ -902,5 +901,30 @@ elif current_tab == "Profile":
                     st.rerun()
                 else:
                     st.error(f"Failed to update profile: {err_msg or 'Username might already be taken.'}")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("⚠️ Danger Zone: Delete Account"):
+            st.markdown("<p style='color: #ff4b4b; font-size: 14px;'>Once you delete your account, all your profile data, posts, reels, and message logs will be permanently removed.</p>", unsafe_allow_html=True)
+            confirm_delete = st.text_input("Type your username to confirm deletion", placeholder=username, key="confirm_delete_input")
+            
+            if st.button("Permanently Delete My Account 🗑️", type="primary"):
+                if confirm_delete.strip().lower() == username.lower():
+                    conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+                        cursor.execute("DELETE FROM reels_posts WHERE username = ?", (username,))
+                        cursor.execute("DELETE FROM messages WHERE sender = ? OR receiver = ?", (username, username))
+                        cursor.execute("DELETE FROM follows WHERE follower = ? OR following = ?", (username, username))
+                        conn.commit()
+                        conn.close()
+                    
+                    st.session_state.logged_in = False
+                    st.session_state.user = None
+                    st.session_state.show_edit_profile = False
+                    st.success("Your account has been successfully deleted.")
+                    st.rerun()
+                else:
+                    st.error("Username confirmation doesn't match. Deletion aborted.")
 
 st.markdown("<p style='text-align: center; color: #555; font-size: 0.7rem; letter-spacing: 2px; margin-top: 5rem;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
