@@ -4,27 +4,6 @@ import datetime
 import base64
 import logging
 import sys
-import sqlite3
-
-conn = sqlite3.connect('database.db')
-cursor = conn.cursor()
-cursor.execute('DROP TABLE IF EXISTS users;')
-cursor.execute("""
-    CREATE TABLE users (
-        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        password TEXT,
-        name TEXT,
-        bio TEXT,
-        age INTEGER,
-        gender TEXT,
-        birth_date TEXT,
-        profile_pic BLOB
-    )
-""")
-conn.commit()
-conn.close()
-print("Database table reset successfully!")
 
 # Page config
 st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
@@ -148,7 +127,8 @@ if not st.session_state.logged_in:
                     db_type, conn = get_db_connection()
                     if conn:
                         cursor = conn.cursor()
-                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+                        # Strip whitespaces to prevent credential mismatches
+                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username.strip(), password))
                         user_row = cursor.fetchone()
                         conn.close()
                         
@@ -183,10 +163,10 @@ if not st.session_state.logged_in:
                             try:
                                 cursor = conn.cursor()
                                 cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (?, ?, ?, ?)", 
-                                               (new_user, new_pass, new_user, "Noob Learning User"))
+                                               (new_user.strip(), new_pass, new_user.strip(), "Noob Learning User"))
                                 conn.commit()
                                 conn.close()
-                                st.success("Account created successfully!")
+                                st.success("Account created successfully! Please log in.")
                                 st.session_state.auth_mode = "login"
                                 st.rerun()
                             except sqlite3.IntegrityError:
