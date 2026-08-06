@@ -500,13 +500,16 @@ if current_tab == "Feed":
                 if p_dict['account_type'] == 'Private' and p_dict['username'] != username:
                     continue
                 
+                # FIXED: Used st.markdown with unsafe_allow_html=True and text replacement to render newlines properly instead of wrapping text in code blocks
+                formatted_caption = p_dict['caption'].replace('\n', '<br>')
+                
                 st.markdown(f"""
                     <div style="background-color: #161b22; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #30363d;">
                         <span style="background: #00C853; color: #0e1117; padding: 2px 8px; border-radius: 50%; font-weight: bold;">{p_dict['username'][0].upper()}</span>
                         <strong style="color: white; margin-left: 8px;">@{p_dict['username']}</strong>
                         <span style="color: #888; font-size: 11px; margin-left: 10px;">({p_dict['account_type']})</span>
                         <p style="color: #888; font-size: 11px; margin-left: 36px; margin-top: -2px;">{p_dict['timestamp']}</p>
-                        <p style="color: #ddd; margin-top: 10px;">{p_dict['caption']}</p>
+                        <p style="color: #ddd; margin-top: 10px;">{formatted_caption}</p>
                     </div>
                 """, unsafe_allow_html=True)
 
@@ -553,6 +556,7 @@ elif current_tab == "Reels":
             if not filtered_reels:
                 st.info("No reels available yet or accounts are private.")
             for r_dict in filtered_reels:
+                formatted_reel_caption = r_dict['caption'].replace('\n', '<br>')
                 st.markdown(f"""
                     <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 20px;">
                         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
@@ -564,7 +568,7 @@ elif current_tab == "Reels":
                                 <span style="color: #888; font-size: 11px;">{r_dict['timestamp']}</span>
                             </div>
                         </div>
-                        <p style="font-size: 15px; color: #eee; margin-top: 10px;">{r_dict['caption']}</p>
+                        <p style="font-size: 15px; color: #eee; margin-top: 10px;">{formatted_reel_caption}</p>
                     </div>
                 """, unsafe_allow_html=True)
                 
