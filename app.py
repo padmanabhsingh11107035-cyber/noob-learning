@@ -4,11 +4,455 @@ import datetime
 import base64
 import logging
 import sys
+
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
+
+# --- DATABASE SETUP & FIXES ---
+def get_db_connection():
+    """Connects to SQLite and automatically ensures the users and messages tables exist."""
+    try:
+        conn = sqlite3.connect('database.db', check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        
+        cursor = conn.cursor()
+        # Users Table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE,
+                password TEXT,
+                name TEXT,
+                bio TEXT,
+                age INTEGER,
+                gender TEXT,
+                birth_date TEXT,
+                profile_pic BLOB
+            )
+        """)
+        
+        # Messages Table for Live Chat
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender TEXT,
+                receiver TEXT,
+                message TEXT,
+                timestamp TEXT
+            )
+        """)
+        conn.commit()
+        
+        # Automatically add missing columns if any
+        cursor.execute("PRAGMA table_info(users)")
+        existing_cols = [row[1] for row in cursor.fetchall()]
+        col_definitions = {
+            'username': 'TEXT UNIQUE',
+            'password': 'TEXT',
+            'name': 'TEXT',
+            'bio': 'TEXT',
+            'age': 'INTEGER',
+            'gender': 'TEXT',
+            'birth_date': 'TEXT',
+            'profile_pic': 'BLOB'
+        }
+        for col, col_type in col_definitions.items():
+            if col not in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+                    conn.commit()
+                except:
+                    pass
+
+        return "sqlite", conn
+    except Exception as e:
+        st.error(f"Database connection error: {e}")
+        return None, None
+
+def get_current_ist_time():
+    # Standard offset for IST (UTC +5:30)
+    ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    return datetime.datetime.now(ist_offset)
+
+def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
+    db_type, conn = get_db_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE users 
+            SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
+            WHERE user_id = ?
+        """, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"SQL Update Failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+# --- SESSION STATE INITIALIZATION ---
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'user' not in st.session_state:
+    st.session_state.user = None
+if 'auth_mode' not in st.session_state:
+    st.session_state.auth_mode = "login"
+if 'nav_option' not in st.session_state:
+    st.session_state.nav_option = "Home"
+if 'viewing_user' not in st.session_state:
+    st.session_state.viewing_user = None
+if 'active_chat_user' not in st.session_state:
+    st.session_state.active_chat_user = None
+
+# --- CUSTOM CSS STYLING ---
+st.markdown("""
+    <style>
+    div.stFormSubmitButton > button {
+        background-color: #28a745 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px;
+    }
+    div.stFormSubmitButton > button:hover {
+        background-color: #218838 !important;
+        color: white !important;
+    }
+    .chat-bubble-user {
+        background: #0095f6;
+        color: white;
+        padding: 10px 14px;
+        border-radius: 15px 15px 2px 15px;
+        margin: 5px 0;
+        max-width: 70%;
+        float: right;
+        clear: both;
+    }
+    .chat-bubble-peer {
+        background: #efefef;
+        color: black;
+        padding: 10px 14px;
+        border-radius: 15px 15px 15px 2px;
+        margin: 5px 0;
+        max-width: 70%;
+        float: left;
+        clear: both;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- AUTHENTICATION SCREEN ---
+if not st.session_state.logged_in:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+            <div style='text-align: center; margin-top: 40px; margin-bottom: 25px;'>
+                <h1 style='font-family: "Brush Script MT", cursive, sans-serif; font-size: 48px; color: #000000; font-weight: bold;'>
+                    Noob Learning
+                </h1>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        if st.session_state.auth_mode == "login":
+            with st.form("insta_login_form"):
+                username = st.text_input("", placeholder="Username or mobile number", label_visibility="collapsed")
+                password = st.text_input("", placeholder="Password", type="password", label_visibility="collapsed")
+                login_submitted = st.form_submit_button("Log in", use_container_width=True)
+                
+                if login_submitted:
+                    db_type, conn = get_db_connection()
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username.strip(), password))
+                        user_row = cursor.fetchone()
+                        conn.close()
+                        
+                        if user_row:
+                            st.session_state.logged_in = True
+                            st.session_state.user = dict(user_row)
+                            st.rerun()
+                        else:
+                            st.error("Incorrect username or password.")
+            
+            if st.button("Create new account", use_container_width=True):
+                st.session_state.auth_mode = "signup"
+                st.rerun()
+        else:
+            with st.form("insta_signup_form"):
+                st.markdown("<h4 style='text-align: center; color: #666;'>Sign up to see posts from your friends.</h4>", unsafe_allow_html=True)
+                new_user = st.text_input("", placeholder="Mobile Number, username or email", label_visibility="collapsed")
+                new_pass = st.text_input("", placeholder="Password", type="password", label_visibility="collapsed")
+                signup_submitted = st.form_submit_button("Sign up", use_container_width=True)
+                
+                if signup_submitted:
+                    if new_user and new_pass:
+                        db_type, conn = get_db_connection()
+                        if conn:
+                            try:
+                                cursor = conn.cursor()
+                                cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (?, ?, ?, ?)", 
+                                               (new_user.strip(), new_pass, new_user.strip(), "Noob Learning Enthusiast"))
+                                conn.commit()
+                                conn.close()
+                                st.success("Account created successfully! Please log in.")
+                                st.session_state.auth_mode = "login"
+                                st.rerun()
+                            except sqlite3.IntegrityError:
+                                st.error("Username already exists.")
+                                conn.close()
+                    else:
+                        st.warning("Please fill in all fields.")
+                        
+            if st.button("Back to Login", use_container_width=True):
+                st.session_state.auth_mode = "login"
+                st.rerun()
+
+        st.markdown("<p style='text-align: center; color: #8e8e8e; font-size: 12px; margin-top: 60px;'>Saraah Robotics</p>", unsafe_allow_html=True)
+    st.stop()
+
+# --- MAIN APP LAYOUT & NAVIGATION ---
+user = st.session_state.user
+
+st.markdown("""
+    <div style='text-align: center;'>
+        <h2 style='font-family: "Brush Script MT", cursive, sans-serif; font-size: 40px; color: #000000;'>Noob Learning Hub</h2>
+    </div>
+""", unsafe_allow_html=True)
+
+# Top Bar actions
+col_logout, col_settings = st.columns([1, 4])
+with col_logout:
+    if st.button("Log Out"):
+        st.session_state.logged_in = False
+        st.session_state.user = None
+        st.rerun()
+
+# Navigation Tabs Bar
+nav_cols = st.columns(5)
+with nav_cols[0]:
+    if st.button("🏠 Home", use_container_width=True):
+        st.session_state.nav_option = "Home"
+        st.session_state.viewing_user = None
+        st.rerun()
+with nav_cols[1]:
+    if st.button("🔍 Search", use_container_width=True):
+        st.session_state.nav_option = "Search"
+        st.session_state.viewing_user = None
+        st.rerun()
+with nav_cols[2]:
+    if st.button("➕ Post", use_container_width=True):
+        st.session_state.nav_option = "Post"
+        st.session_state.viewing_user = None
+        st.rerun()
+with nav_cols[3]:
+    if st.button("💬 Chat", use_container_width=True):
+        st.session_state.nav_option = "Chat"
+        st.session_state.viewing_user = None
+        st.rerun()
+with nav_cols[4]:
+    if st.button("👤 Profile", use_container_width=True):
+        st.session_state.nav_option = "Profile"
+        st.session_state.viewing_user = user['username']  # view own profile
+        st.rerun()
+
+st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+
+# --- ROUTING LOGIC ---
+current_tab = st.session_state.nav_option
+
+# 1. HOME TAB
+if current_tab == "Home":
+    st.write("### Feed")
+    st.info("Welcome to the Noob Learning main feed! Share your progress or check out your peers.")
+
+# 2. SEARCH TAB (Find users and view their profiles)
+elif current_tab == "Search":
+    st.write("### Search Users")
+    search_query = st.text_input("Search by username or name", placeholder="Type username here...")
+    
+    db_type, conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        if search_query:
+            cursor.execute("SELECT * FROM users WHERE username LIKE ? OR name LIKE ?", (f"%{search_query}%", f"%{search_query}%"))
+        else:
+            cursor.execute("SELECT * FROM users")
+        users_list = cursor.fetchall()
+        conn.close()
+
+        st.write(f"Found {len(users_list)} user(s):")
+        for u_row in users_list:
+            u_dict = dict(u_row)
+            col_u1, col_u2 = st.columns([3, 1])
+            with col_u1:
+                st.markdown(f"**@{u_dict['username']}** — *{u_dict['name'] or 'No Name'}*")
+            with col_u2:
+                if st.button("View Profile", key=f"view_{u_dict['user_id']}"):
+                    st.session_state.viewing_user = u_dict['username']
+                    st.session_state.nav_option = "Profile"
+                    st.rerun()
+
+# 3. POST TAB
+elif current_tab == "Post":
+    st.write("### Create a New Post")
+    uploaded_file = st.file_uploader("Choose an image or video", type=["jpg", "jpeg", "png", "mp4"])
+    caption = st.text_area("Write a caption...")
+    if st.button("Share Post"):
+        st.success("Post shared successfully!")
+
+# 4. CHAT TAB (Live messaging matching Image 4 design flow)
+elif current_tab == "Chat":
+    st.write("### Messages")
+    db_type, conn = get_db_connection()
+    all_users = []
+    if conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username != ?", (user['username'],))
+        all_users = cursor.fetchall()
+        conn.close()
+
+    if st.session_state.active_chat_user is None:
+        st.write("Select a user to start chatting:")
+        for peer in all_users:
+            peer_dict = dict(peer)
+            col_c1, col_c2 = st.columns([3, 1])
+            with col_c1:
+                st.markdown(f"💬 **{peer_dict['username']}** ({peer_dict['name'] or 'User'})")
+            with col_c2:
+                if st.button("Chat", key=f"chat_btn_{peer_dict['user_id']}"):
+                    st.session_state.active_chat_user = peer_dict['username']
+                    st.rerun()
+    else:
+        peer_name = st.session_state.active_chat_user
+        if st.button("⬅ Back to Inbox"):
+            st.session_state.active_chat_user = None
+            st.rerun()
+
+        st.markdown(f"### Chatting with: **{peer_name}**")
+        
+        # Chat container box
+        chat_container = st.container()
+        
+        # Fetch messages between logged-in user and active peer
+        db_type, conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM messages 
+                WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
+                ORDER BY id ASC
+            """, (user['username'], peer_name, peer_name, user['username']))
+            messages = cursor.fetchall()
+            conn.close()
+
+            with chat_container:
+                for msg in messages:
+                    if msg['sender'] == user['username']:
+                        st.markdown(f"<div class='chat-bubble-user'>{msg['message']}</div>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"<div class='chat-bubble-peer'>{msg['message']}</div>", unsafe_allow_html=True)
+
+        # Send message form
+        with st.form("chat_send_form", clear_on_submit=True):
+            new_msg = st.text_input("Message...", placeholder=f"Reply to {peer_name}...", label_visibility="collapsed")
+            send_btn = st.form_submit_button("Send")
+            if send_btn and new_msg:
+                db_type, conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("INSERT INTO messages (sender, receiver, message, timestamp) VALUES (?, ?, ?, ?)",
+                                   (user['username'], peer_name, new_msg, str(get_current_ist_time())))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+
+# 5. PROFILE TAB (Instagram Style layout matching Image 2)
+elif current_tab == "Profile":
+    target_username = st.session_state.viewing_user or user['username']
+    
+    db_type, conn = get_db_connection()
+    profile_data = None
+    if conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = ?", (target_username,))
+        row = cursor.fetchone()
+        if row:
+            profile_data = dict(row)
+        conn.close()
+
+    if profile_data:
+        is_own_profile = (profile_data['username'] == user['username'])
+        
+        # Top Header row: Profile Picture & Stats
+        col_img, col_stats = st.columns([1, 2])
+        with col_img:
+            if profile_data.get('profile_pic'):
+                st.image(profile_data['profile_pic'], width=110)
+            else:
+                st.markdown("👤", unsafe_allow_html=True) # Placeholder avatar
+                
+        with col_stats:
+            st.markdown(f"### @{profile_data['username']}")
+            
+            # Instagram-style stats counter row
+            stat_c1, stat_c2, stat_c3 = st.columns(3)
+            with stat_c1:
+                st.markdown("**0**\nPosts")
+            with stat_c2:
+                st.markdown("**12**\nFollowers")
+            with stat_c3:
+                st.markdown("**15**\nFollowing")
+
+        # Bio details section
+        st.markdown(f"**{profile_data.get('name') or profile_data['username']}**")
+        st.markdown(f"{profile_data.get('bio') or 'No bio added yet.'}")
+        
+        # Action Buttons (Follow / Message / Edit Profile)
+        if is_own_profile:
+            with st.expander("⚙️ Edit Profile Details & Settings"):
+                with st.form("edit_profile_form"):
+                    new_name = st.text_input("Name", value=profile_data.get('name', ''))
+                    new_bio = st.text_area("Bio", value=profile_data.get('bio', ''))
+                    new_age = st.number_input("Age", min_value=1, max_value=120, value=int(profile_data.get('age') or 18))
+                    
+                    gender_options = ["Male", "Female", "Other", "Prefer not to say"]
+                    cur_g = profile_data.get('gender')
+                    g_idx = gender_options.index(cur_g) if cur_g in gender_options else 0
+                    new_gender = st.selectbox("Gender", gender_options, index=g_idx)
+                    new_birth_date = st.text_input("Birth Date (DD/MM/YYYY)", value=profile_data.get('birth_date', ''))
+
+                    if st.form_submit_button("Save Changes"):
+                        success = safe_update_user_profile(
+                            profile_data['user_id'], new_name, new_bio, new_age, new_gender, new_birth_date
+                        )
+                        if success:
+                            st.success("Profile updated successfully!")
+                            st.rerun()
+        else:
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("Follow", use_container_width=True):
+                    st.success(f"You are now following @{profile_data['username']}!")
+            with btn_col2:
+                if st.button("Message", use_container_width=True):
+                    st.session_state.active_chat_user = profile_data['username']
+                    st.session_state.nav_option = "Chat"
+                    st.rerun()
+
+        st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+        st.write("🖼️ **User Posts Grid**")
+        st.info("No posts uploaded by this user yet.")
+    else:
+        st.error("User not found.")
+
+st.markdown("<p style='text-align: center; color: #8e8e8e; font-size: 12px; margin-top: 60px;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
 from zoneinfo import ZoneInfo  
 def get_current_ist_time():
-    dt_utc = datetime.datetime.now(datetime.timezone.utc)
-    dt_ist = dt_utc.astimezone(ZoneInfo("Asia/Kolkata"))
-    return dt_ist
+    # IST is UTC +5:30 fixed
+    ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    return datetime.datetime.now(ist_offset)
 # Page config
 st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
 
