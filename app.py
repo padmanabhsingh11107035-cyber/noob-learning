@@ -3,6 +3,7 @@ import sqlite3
 import datetime
 import logging
 import sys
+import base64
 
 # ==============================================================================
 # 0. LOGGING & PAGE CONFIG
@@ -47,7 +48,7 @@ def init_db():
                 profile_pic TEXT
             )
         """)
-        # Ensure new columns exist if table was already created
+        # Ensure all required columns exist with safe migration checks
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
         if 'gender' not in columns:
@@ -56,6 +57,8 @@ def init_db():
             cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
         if 'account_type' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
+        if 'profile_pic' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS reels_posts (
@@ -97,7 +100,7 @@ def get_current_ist_time():
     return datetime.datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S")
 
 # ==============================================================================
-# USER REGISTRATION & PROFILE UPDATE LOGIC WITH SAFE MIGRATION
+# USER REGISTRATION & PROFILE UPDATE LOGIC WITH ROBUST SCHEMA VERIFICATION
 # ==============================================================================
 def register_user(username, password, full_name, bio, profile_pic, gender, birth_date, account_type):
     conn = get_db_connection()
@@ -115,7 +118,7 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
     if conn:
         cursor = conn.cursor()
         
-        # Dynamically check table columns to prevent operational errors if database file is older
+        # Dynamically verify all columns exist to avoid any operational SQLite errors
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
         if 'gender' not in columns:
@@ -124,6 +127,8 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
             cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
         if 'account_type' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
+        if 'profile_pic' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
         conn.commit()
 
         cursor.execute("SELECT full_name, bio, profile_pic, gender, birth_date, account_type, password FROM users WHERE username = ?", (username,))
@@ -132,7 +137,7 @@ def update_user_profile(username, new_full_name, new_bio, new_profile_pic, new_g
         if existing_user:
             final_full_name = new_full_name if new_full_name and new_full_name.strip() else existing_user['full_name']
             final_bio = new_bio if new_bio and new_bio.strip() else existing_user['bio']
-            final_profile_pic = new_profile_pic if new_profile_pic and new_profile_pic.strip() else existing_user['profile_pic']
+            final_profile_pic = new_profile_pic if new_profile_pic is not None and new_profile_pic != '' else existing_user['profile_pic']
             final_gender = new_gender if new_gender and new_gender.strip() else existing_user['gender']
             final_birth_date = new_birth_date if new_birth_date and new_birth_date.strip() else existing_user['birth_date']
             final_account_type = new_account_type if new_account_type and new_account_type.strip() else existing_user['account_type']
@@ -160,7 +165,7 @@ if 'active_chat_user' not in st.session_state:
     st.session_state.active_chat_user = None
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME (Instagram Box Style Layout & Label Fixes)
+# 2. PREMIUM CUSTOM CSS THEME (Visibility & Layout Fixes)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -193,33 +198,37 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
     }
 
+    /* Fully visible, high-contrast buttons with vivid green gradient and clear text */
     div.stButton > button {
-        background: linear-gradient(135deg, #00C853 0%, #009624) !important;
-        color: #0e1117 !important;
-        font-weight: 700 !important;
-        border: none !important;
+        background: linear-gradient(135deg, #00E676 0%, #00C853 100%) !important;
+        color: #0b0f19 !important;
+        font-weight: 800 !important;
+        border: 2px solid #00FF88 !important;
         border-radius: 8px !important;
-        padding: 0.6rem 1rem !important;
-        box-shadow: 0 4px 15px rgba(0, 200, 83, 0.3);
-        transition: all 0.3s ease;
+        padding: 0.6rem 1.2rem !important;
+        box-shadow: 0 4px 15px rgba(0, 230, 118, 0.4) !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        transition: all 0.2s ease;
     }
     div.stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 20px rgba(0, 200, 83, 0.4);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 22px rgba(0, 230, 118, 0.6) !important;
+        background: linear-gradient(135deg, #69F0AE 0%, #00E676 100%) !important;
     }
     
     input, textarea, select {
         background-color: rgba(13, 17, 23, 0.7) !important;
         color: white !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
         border-radius: 8px !important;
     }
 
-    /* Force Streamlit form input labels to be clearly visible and high contrast */
-    .stTextInput label, .stSelectbox label, .stTextArea label {
-        color: #f0f6fc !important;
-        font-weight: 600 !important;
-        font-size: 0.95rem !important;
+    /* Force all form input labels to be clearly readable and prominent */
+    .stTextInput label, .stSelectbox label, .stTextArea label, .stFileUploader label {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -363,11 +372,17 @@ with header_col5:
 with header_col_profile:
     prof_col_avatar, prof_col_name, prof_col_btn = st.columns([1, 2, 1.5])
     with prof_col_avatar:
-        st.markdown(f"""
-            <div style="background-color: #00C853; color: #0e1117; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; margin-top: 5px;">
-                {first_letter}
-            </div>
-        """, unsafe_allow_html=True)
+        profile_pic_val = user.get('profile_pic')
+        if profile_pic_val and profile_pic_val.startswith('data:image'):
+            st.markdown(f"""
+                <img src='{profile_pic_val}' style='width: 32px; height: 32px; border-radius: 50%; object-fit: cover; margin-top: 5px;'>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+                <div style="background-color: #00C853; color: #0e1117; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; margin-top: 5px;">
+                    {first_letter}
+                </div>
+            """, unsafe_allow_html=True)
     with prof_col_name:
         st.markdown(f"<p style='color: white; font-weight: bold; font-size: 13px; margin: 8px 0 0 0;'>@{username}</p>", unsafe_allow_html=True)
     with prof_col_btn:
@@ -559,7 +574,7 @@ elif current_tab == "Chat":
             
             c_info, c_btn = st.columns([5, 1])
             with c_info:
-                if profile_pic:
+                if profile_pic and profile_pic.startswith('data:image'):
                     avatar_html = f"<img src='{profile_pic}' style='width: 42px; height: 42px; border-radius: 50%; object-fit: cover;'>"
                 else:
                     avatar_html = f"<div style='background-color: #00C853; color: #0e1117; width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px;'>{avatar_char}</div>"
@@ -633,7 +648,7 @@ elif current_tab == "Profile":
     if conn:
         cursor = conn.cursor()
         
-        # Ensure database table columns exist safely before querying user profile
+        # Verify table schema safely before querying profile
         cursor.execute("PRAGMA table_info(users)")
         columns = [col['name'] for col in cursor.fetchall()]
         if 'gender' not in columns:
@@ -642,6 +657,8 @@ elif current_tab == "Profile":
             cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
         if 'account_type' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'Public'")
+        if 'profile_pic' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
         conn.commit()
 
         cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
@@ -651,12 +668,16 @@ elif current_tab == "Profile":
             st.session_state.user = user
         conn.close()
 
+    current_pic_data = user.get('profile_pic')
+    if current_pic_data and current_pic_data.startswith('data:image'):
+        avatar_display_html = f"<img src='{current_pic_data}' style='width: 70px; height: 70px; border-radius: 50%; object-fit: cover;'>"
+    else:
+        avatar_display_html = f"<div style='background-color: #00C853; color: #0e1117; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;'>{first_letter}</div>"
+
     st.markdown(f"""
         <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
             <div style="display: flex; align-items: center; gap: 20px;">
-                <div style="background-color: #00C853; color: #0e1117; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;">
-                    {first_letter}
-                </div>
+                {avatar_display_html}
                 <div>
                     <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
                     <p style="color: #00C853; font-weight: 500; margin: 2px 0;">Account Type: {user.get('account_type', 'Public')} | Gender: {user.get('gender', 'N/A')} | DOB: {user.get('birth_date', 'N/A')}</p>
@@ -666,8 +687,8 @@ elif current_tab == "Profile":
         </div>
     """, unsafe_allow_html=True)
     
-    with st.expander("⚙️ Edit Profile Settings"):
-        st.markdown("<p style='color: #8b949e; font-size: 0.9rem;'>Update your personal details below. Unchanged fields will automatically retain your existing data.</p>", unsafe_allow_html=True)
+    with st.expander("⚙️ Edit Profile Settings", expanded=True):
+        st.markdown("<p style='color: #8b949e; font-size: 0.9rem;'>Update your profile information below. Unchanged fields will automatically retain your current data.</p>", unsafe_allow_html=True)
         with st.form("edit_profile"):
             new_full = st.text_input("👤 Full Name", value=user.get('full_name', ''))
             
@@ -684,12 +705,23 @@ elif current_tab == "Profile":
             new_acc_type = st.selectbox("🔒 Account Type (Public = Everyone, Private = Followers/Friends only)", acc_options, index=acc_idx)
             
             new_bio = st.text_area("📝 Bio", value=user.get('bio', ''))
-            new_pic = st.text_input("🖼️ Profile Picture URL (Optional)", value=user.get('profile_pic', ''))
+            
+            uploaded_pic_file = st.file_uploader("🖼️ Upload Profile Picture (JPG, PNG)", type=['jpg', 'jpeg', 'png'])
+            
             new_pass = st.text_input("🔑 Change Password (leave blank to keep current)", type="password", value="")
             
-            if st.form_submit_button("Save Profile Settings"):
-                update_user_profile(username, new_full, new_bio, new_pic, new_gender, new_dob, new_acc_type, new_pass)
-                st.success("Profile updated successfully! Unchanged fields retained their previous values.")
+            submit_profile = st.form_submit_button("Save Profile Settings", use_container_width=True)
+            
+            if submit_profile:
+                final_pic_base64 = user.get('profile_pic', '')
+                if uploaded_pic_file is not None:
+                    bytes_data = uploaded_pic_file.getvalue()
+                    encoded = base64.b64encode(bytes_data).decode()
+                    file_extension = uploaded_pic_file.type.split('/')[-1]
+                    final_pic_base64 = f"data:image/{file_extension};base64,{encoded}"
+                
+                update_user_profile(username, new_full, new_bio, final_pic_base64, new_gender, new_dob, new_acc_type, new_pass)
+                st.success("Profile updated successfully!")
                 st.rerun()
 
 st.markdown("<p style='text-align: center; color: #555; font-size: 0.7rem; letter-spacing: 2px; margin-top: 5rem;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
