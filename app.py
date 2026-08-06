@@ -274,22 +274,25 @@ with col_logout:
         st.session_state.user = None
         st.rerun()
 
-# Navigation Tabs Bar with distinct keys to prevent element id clashes
+# Navigation Tabs Bar
 nav_cols = st.columns(5)
 with nav_cols[0]:
     if st.button("🏠 Home", use_container_width=True, key="nav_home_btn"):
         st.session_state.nav_option = "Home"
         st.session_state.viewing_user = None
+        st.session_state.active_chat_user = None
         st.rerun()
 with nav_cols[1]:
     if st.button("🔍 Search", use_container_width=True, key="nav_search_btn"):
         st.session_state.nav_option = "Search"
         st.session_state.viewing_user = None
+        st.session_state.active_chat_user = None
         st.rerun()
 with nav_cols[2]:
     if st.button("➕ Post", use_container_width=True, key="nav_post_btn"):
         st.session_state.nav_option = "Post"
         st.session_state.viewing_user = None
+        st.session_state.active_chat_user = None
         st.rerun()
 with nav_cols[3]:
     if st.button("💬 Chat", use_container_width=True, key="nav_chat_btn"):
@@ -300,6 +303,7 @@ with nav_cols[4]:
     if st.button("👤 Profile", use_container_width=True, key="nav_profile_btn"):
         st.session_state.nav_option = "Profile"
         st.session_state.viewing_user = user['username']
+        st.session_state.active_chat_user = None
         st.rerun()
 
 st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
@@ -347,7 +351,7 @@ elif current_tab == "Post":
     if st.button("Share Post", key="share_post_btn"):
         st.success("Post shared successfully!")
 
-# 4. CHAT TAB (Live Messaging with automatic instant updates)
+# 4. CHAT TAB (Strictly scoped layout ensuring st.chat_input stays within active chat view)
 elif current_tab == "Chat":
     st.write("### Messages")
     db_type, conn = get_db_connection()
@@ -400,7 +404,7 @@ elif current_tab == "Chat":
                     else:
                         st.markdown(f"<div class='chat-bubble-peer'>{msg['message']}</div>", unsafe_allow_html=True)
 
-        # Real-time message submission via st.chat_input (updates instantly without lag)
+        # Real-time message submission via st.chat_input rendered ONLY inside the active chat view
         user_msg = st.chat_input(f"Reply to {peer_name}...", key="live_chat_input_box")
         if user_msg:
             db_type, conn = get_db_connection()
@@ -539,7 +543,6 @@ elif current_tab == "Profile":
         st.error("User not found.")
 
 st.markdown("<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
-
 # ==============================================================================
 # 2. DATABASE CONFIGURATION & FALLBACK (Local SQLite or Cloud MySQL)
 # ==============================================================================
