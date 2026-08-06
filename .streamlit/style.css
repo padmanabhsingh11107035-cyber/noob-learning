@@ -1,9 +1,23 @@
+/* Global App Background & Text */
 .stApp {
     background-color: #0e1117;
-    color: #ffffff;
+    color: #ffffff !important;
 }
+
+/* Hide Streamlit Header */
 header {visibility: hidden;}
 
+/* Force all text elements, headers, and paragraphs to be bright white or clear gray */
+h1, h2, h3, h4, h5, h6, span, p, label {
+    color: #ffffff !important;
+}
+
+/* Specific styling for secondary text descriptions */
+p[style*="color: #888"], span[style*="color: #888"] {
+    color: #b0b8c1 !important;
+}
+
+/* Button Styling */
 div.stButton > button {
     background-color: #00C853 !important;
     color: #0e1117 !important;
@@ -12,10 +26,19 @@ div.stButton > button {
     border-radius: 8px !important;
     padding: 0.5rem 1rem !important;
 }
+div.stButton > button:hover {
+    opacity: 0.85;
+}
 
+/* Input Fields & Textareas with bright text */
 input, textarea {
     background-color: #161b22 !important;
-    color: white !important;
+    color: #ffffff !important;
     border: 1px solid #30363d !important;
     border-radius: 6px !important;
+}
+
+/* Chat Input fix */
+div[data-baseweb="input"] input {
+    color: #ffffff !important;
 }
