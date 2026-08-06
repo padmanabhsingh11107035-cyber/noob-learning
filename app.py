@@ -26,18 +26,17 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
         s_birth = sanitize_input(new_birth_date)
         s_age = int(new_age)
         
-        # NOTE: If your database column is named something else (like full_name), change 'name' below to match it.
         if db_type == "mysql":
             query = """
                 UPDATE users 
-                SET name = %s, bio = %s, age = %s, gender = %s, birth_date = %s 
+                SET full_name = %s, bio = %s, age = %s, gender = %s, birth_date = %s 
                 WHERE user_id = %s
             """
             cursor.execute(query, (s_name, s_bio, s_age, s_gender, s_birth, user_id))
         else:
             query = """
                 UPDATE users 
-                SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
+                SET full_name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
                 WHERE user_id = ?
             """
             cursor.execute(query, (s_name, s_bio, s_age, s_gender, s_birth, user_id))
@@ -49,7 +48,6 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
         return False
     finally:
         conn.close()
-
 # Live Chat Input Box
 
 def render_live_chat(current_user):
