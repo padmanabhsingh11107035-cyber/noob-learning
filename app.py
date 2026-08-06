@@ -3,82 +3,6 @@ import sqlite3
 import datetime
 import logging
 import sys
-# ==============================================================================
-# USER REGISTRATION / SIGN UP CODE EXAMPLE
-# ==============================================================================
-def register_user(username, password, full_name, bio, profile_pic):
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        # Insert or fallback logic can be handled here
-        cursor.execute("""
-            INSERT OR REPLACE INTO users (username, password, full_name, bio, profile_pic)
-            VALUES (?, ?, ?, ?, ?)
-        """, (username, password, full_name, bio, profile_pic))
-        conn.commit()
-        conn.close()
-
-# ==============================================================================
-# PROFILE UPDATE LOGIC WITH FALLBACK TO LAST STORED DETAIL
-# ==============================================================================
-def update_user_profile(username, new_full_name, new_bio, new_profile_pic):
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        
-        # 1. Fetch the last stored details for this user from the database
-        cursor.execute("SELECT full_name, bio, profile_pic FROM users WHERE username = ?", (username,))
-        existing_user = cursor.fetchone()
-        
-        if existing_user:
-            # 2. Fallback check: If new input is empty/blank, keep the last stored detail
-            final_full_name = new_full_name if new_full_name and new_full_name.strip() else existing_user['full_name']
-            final_bio = new_bio if new_bio and new_bio.strip() else existing_user['bio']
-            final_profile_pic = new_profile_pic if new_profile_pic and new_profile_pic.strip() else existing_user['profile_pic']
-            
-            # 3. Save the updated or fallback data back into the database
-            cursor.execute("""
-                UPDATE users 
-                SET full_name = ?, bio = ?, profile_pic = ?
-                WHERE username = ?
-            """, (final_full_name, final_bio, final_profile_pic, username))
-            
-            conn.commit()
-        conn.close()
-def load_css(file_name):
-    with open(file_name) as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-
-load_css(".streamlit/style.css")
-# ==============================================================================
-# PROFILE UPDATE FORM SECTION
-# ==============================================================================
-if "Profile" in globals().get("current_tab", "") or "profile" in str(globals().get("current_tab", "")).lower():
-    st.markdown("### ⚙️ Update Your Profile Details")
-    
-    # Grab current user session name if available
-    current_user_name = globals().get("username", "user")
-    
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = ?", (current_user_name,))
-        row = cursor.fetchone()
-        current_data = dict(row) if row else {}
-        conn.close()
-    else:
-        current_data = {}
-
-    with st.form("update_profile_form_bottom"):
-        updated_name = st.text_input("Full Name", value=current_data.get('full_name', ''))
-        updated_bio = st.text_area("Bio", value=current_data.get('bio', ''))
-        updated_pic = st.text_input("Profile Picture URL (Optional)", value=current_data.get('profile_pic', ''))
-        
-        submitted = st.form_submit_button("Save Changes")
-        if submitted:
-            update_user_profile(current_user_name, updated_name, updated_bio, updated_pic)
-            st.success("Profile updated successfully! Missing fields kept their previous values.")
-            st.rerun()
 
 # ==============================================================================
 # 0. LOGGING & PAGE CONFIG
@@ -94,7 +18,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 1. DATABASE SETUP
+# 1. DATABASE SETUP & CONNECTION
 # ==============================================================================
 def get_db_connection():
     try:
@@ -141,7 +65,6 @@ def init_db():
                 timestamp TEXT
             )
         """)
-        # Insert default demo accounts if not exist
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:
             demo_users = [
@@ -163,6 +86,41 @@ def get_current_ist_time():
     ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
     return datetime.datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S")
 
+# ==============================================================================
+# USER REGISTRATION & PROFILE UPDATE LOGIC WITH FALLBACK
+# ==============================================================================
+def register_user(username, password, full_name, bio, profile_pic):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO users (username, password, full_name, bio, profile_pic)
+            VALUES (?, ?, ?, ?, ?)
+        """, (username, password, full_name, bio, profile_pic))
+        conn.commit()
+        conn.close()
+
+def update_user_profile(username, new_full_name, new_bio, new_profile_pic):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT full_name, bio, profile_pic FROM users WHERE username = ?", (username,))
+        existing_user = cursor.fetchone()
+        
+        if existing_user:
+            final_full_name = new_full_name if new_full_name and new_full_name.strip() else existing_user['full_name']
+            final_bio = new_bio if new_bio and new_bio.strip() else existing_user['bio']
+            final_profile_pic = new_profile_pic if new_profile_pic and new_profile_pic.strip() else existing_user['profile_pic']
+            
+            cursor.execute("""
+                UPDATE users 
+                SET full_name = ?, bio = ?, profile_pic = ?
+                WHERE username = ?
+            """, (final_full_name, final_bio, final_profile_pic, username))
+            
+            conn.commit()
+        conn.close()
+
 # --- SESSION STATE ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -176,57 +134,93 @@ if 'active_chat_user' not in st.session_state:
     st.session_state.active_chat_user = None
 
 # ==============================================================================
-# 2. CUSTOM CSS THEME (Exact Dark Aesthetics & Layout)
+# 2. PREMIUM CUSTOM CSS THEME (Instagram Box Style Layout)
 # ==============================================================================
 st.markdown("""
 <style>
     .stApp {
-        background-color: #0e1117;
+        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
         color: #ffffff;
     }
     header {visibility: hidden;}
     
-    /* Buttons */
+    /* Premium Box Styling inspired by provided design */
+    .auth-container {
+        max-width: 380px;
+        margin: 40px auto;
+        background: rgba(22, 27, 34, 0.85);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 35px 30px;
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+    }
+    
+    .auth-footer-box {
+        max-width: 380px;
+        margin: 15px auto 40px auto;
+        background: rgba(22, 27, 34, 0.85);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 20px 30px;
+        text-align: center;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Primary Buttons inside Auth */
     div.stButton > button {
-        background-color: #00C853 !important;
+        background: linear-gradient(135deg, #00C853 0%, #009624) !important;
         color: #0e1117 !important;
         font-weight: 700 !important;
         border: none !important;
         border-radius: 8px !important;
-        padding: 0.5rem 1rem !important;
+        padding: 0.6rem 1rem !important;
+        box-shadow: 0 4px 15px rgba(0, 200, 83, 0.3);
+        transition: all 0.3s ease;
     }
     div.stButton > button:hover {
-        opacity: 0.85;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgba(0, 200, 83, 0.4);
     }
     
-    /* Input Fields */
+    /* Input Fields styling */
     input, textarea {
-        background-color: #161b22 !important;
+        background-color: rgba(13, 17, 23, 0.7) !important;
         color: white !important;
-        border: 1px solid #30363d !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 8px !important;
     }
-    
-    /* Card containers */
-    .element-container {
-        color: white;
+    input:focus {
+        border-color: #00C853 !important;
+        box-shadow: 0 0 0 2px rgba(0, 200, 83, 0.2) !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 3. AUTHENTICATION SCREEN
+# 3. PREMIUM BOX AUTHENTICATION SCREEN
 # ==============================================================================
 if not st.session_state.logged_in:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("<h1 style='color: #ff4b4b; font-family: sans-serif; text-align: center;'>⚡ Noob Learning</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #888; font-size: 0.85rem; letter-spacing: 1px;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
+    _, center_col, _ = st.columns([1, 1.2, 1])
+    
+    with center_col:
+        # Main Box Container
+        st.markdown("<div class='auth-container'>", unsafe_allow_html=True)
+        
+        # Logo / Brand Header
+        st.markdown("""
+            <div style="text-align: center; margin-bottom: 25px;">
+                <h1 style="font-family: 'Brush Script MT', cursive, sans-serif; font-size: 3rem; font-weight: normal; margin: 0; background: linear-gradient(45deg, #ffffff, #a5d6a7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1px;">Noob Learning</h1>
+                <p style="color: #00C853; font-size: 0.7rem; letter-spacing: 2px; margin-top: 5px; font-weight: 600;">POWERED BY SARAAH ROBOTICS</p>
+            </div>
+        """, unsafe_allow_html=True)
         
         if st.session_state.auth_mode == "login":
             with st.form("login_form"):
-                username_in = st.text_input("Username or mobile number", placeholder="username")
-                password_in = st.text_input("Password", type="password", placeholder="••••••••")
-                submitted = st.form_submit_button("Log in", use_container_width=True)
+                username_in = st.text_input("Phone number, username, or email", placeholder="Phone number, username, or email")
+                password_in = st.text_input("Password", type="password", placeholder="Password")
+                submitted = st.form_submit_button("Log In", use_container_width=True)
                 
                 if submitted:
                     conn = get_db_connection()
@@ -241,43 +235,70 @@ if not st.session_state.logged_in:
                             st.rerun()
                         else:
                             st.error("Invalid username or password.")
-                            
-            if st.button("Create new account", use_container_width=True):
-                st.session_state.auth_mode = "signup"
-                st.rerun()
+            
+            # Divider 'OR'
+            st.markdown("""
+                <div style="display: flex; align-items: center; text-align: center; margin: 20px 0; color: #8b949e; font-size: 13px;">
+                    <div style="flex: 1; border-bottom: 1px solid rgba(255,255,255,0.1);"></div>
+                    <div style="padding: 0 15px; font-weight: 600; font-size: 11px; letter-spacing: 1px;">OR</div>
+                    <div style="flex: 1; border-bottom: 1px solid rgba(255,255,255,0.1);"></div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Additional Links inside Main Box
+            st.markdown("""
+                <div style="text-align: center; margin-top: 15px;">
+                    <a href="#" style="color: #58a6ff; text-decoration: none; font-size: 13px;">Forgot password?</a>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("</div>", unsafe_allow_html=True)  # Close main box
+            
+            # Secondary Bottom Box for Signup toggle
+            st.markdown("<div class='auth-footer-box'>", unsafe_allow_html=True)
+            col_txt, col_btn = st.columns([2.5, 1])
+            with col_txt:
+                st.markdown("<p style='margin: 6px 0 0 0; font-size: 14px; color: #c9d1d9;'>Don't have an account?</p>", unsafe_allow_html=True)
+            with col_btn:
+                if st.button("Sign up", key="to_signup_btn"):
+                    st.session_state.auth_mode = "signup"
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+            
         else:
+            # Signup Form inside Main Box
             with st.form("signup_form"):
-                st.markdown("### Create an Account")
-                new_user = st.text_input("Username", placeholder="choose username").lower()
-                new_pass = st.text_input("Password", type="password")
-                full_name = st.text_input("Full Name")
-                bio = st.text_area("Bio")
+                st.markdown("<h3 style='text-align: center; font-size: 1.2rem; margin-bottom: 15px; color: #fff;'>Create a New Account</h3>", unsafe_allow_html=True)
+                new_user = st.text_input("Username", placeholder="Choose username").lower()
+                new_pass = st.text_input("Password", type="password", placeholder="Password")
+                full_name = st.text_input("Full Name", placeholder="Full Name")
+                bio = st.text_area("Bio", placeholder="Short Bio")
                 
                 if st.form_submit_button("Sign Up", use_container_width=True):
                     if new_user and new_pass:
-                        conn = get_db_connection()
-                        if conn:
-                            try:
-                                cursor = conn.cursor()
-                                cursor.execute("""
-                                    INSERT INTO users (username, password, full_name, bio, account_type)
-                                    VALUES (?, ?, ?, ?, ?)
-                                """, (new_user.strip(), new_pass, full_name, bio, 'Student'))
-                                conn.commit()
-                                conn.close()
-                                st.success("Account created! Please log in.")
-                                st.session_state.auth_mode = "login"
-                                st.rerun()
-                            except sqlite3.IntegrityError:
-                                st.error("Username already taken.")
-                                conn.close()
+                        try:
+                            register_user(new_user.strip(), new_pass, full_name, bio, "")
+                            st.success("Account created! Please log in.")
+                            st.session_state.auth_mode = "login"
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("Username already taken.")
                     else:
                         st.warning("Fill in username and password.")
             
-            if st.button("Back to Login", use_container_width=True):
-                st.session_state.auth_mode = "login"
-                st.rerun()
-                
+            st.markdown("</div>", unsafe_allow_html=True)  # Close main box
+            
+            # Secondary Bottom Box for Login toggle
+            st.markdown("<div class='auth-footer-box'>", unsafe_allow_html=True)
+            col_txt2, col_btn2 = st.columns([2.2, 1.2])
+            with col_txt2:
+                st.markdown("<p style='margin: 6px 0 0 0; font-size: 14px; color: #c9d1d9;'>Have an account?</p>", unsafe_allow_html=True)
+            with col_btn2:
+                if st.button("Log in", key="to_login_btn"):
+                    st.session_state.auth_mode = "login"
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+            
     st.stop()
 
 # ==============================================================================
@@ -287,7 +308,6 @@ user = st.session_state.user
 username = user['username']
 first_letter = username[0].upper()
 
-# Top Header Layout (Brand + Nav Tabs + Profile Widget matching Images 3 & 4)
 header_col1, header_col2, header_col3, header_col4, header_col5, header_col_profile = st.columns([2.5, 1, 1, 1, 1, 1.8])
 
 with header_col1:
@@ -367,7 +387,6 @@ if current_tab == "Feed":
 
         st.markdown("---")
         
-        # Display Feed Posts
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
@@ -466,7 +485,6 @@ elif current_tab == "Chat":
     peers = []
     if conn:
         cursor = conn.cursor()
-        # Fetch all other users except current user
         cursor.execute("SELECT * FROM users WHERE username != ?", (username,))
         peers = cursor.fetchall()
         conn.close()
@@ -475,12 +493,10 @@ elif current_tab == "Chat":
         st.markdown("### 💬 Direct Messages & User Search")
         st.markdown("<p style='color: #b0b8c1; font-size: 14px;'>Search users by User ID or pick from recent community members.</p>", unsafe_allow_html=True)
         
-        # --- Search Box ---
         search_query = st.text_input("🔍 Search User ID / Username", placeholder="Type a username to search...").strip().lower()
         
         st.markdown("<hr style='border: 0.5px solid #30363d;'>", unsafe_allow_html=True)
         
-        # Filter peers based on search query
         filtered_peers = [dict(p) for p in peers if search_query in p['username'].lower() or (p.get('full_name') and search_query in p['full_name'].lower())] if search_query else [dict(p) for p in peers]
         
         if search_query:
@@ -494,11 +510,10 @@ elif current_tab == "Chat":
         for p_dict in filtered_peers:
             avatar_char = p_dict['username'][0].upper()
             display_name = p_dict.get('full_name') or p_dict['username']
-            profile_pic = p_dict.get('profile_pic') # Checks if custom profile pic exists
+            profile_pic = p_dict.get('profile_pic')
             
             c_info, c_btn = st.columns([5, 1])
             with c_info:
-                # If custom profile pic exists, render image; otherwise fallback to default avatar circle
                 if profile_pic:
                     avatar_html = f"<img src='{profile_pic}' style='width: 42px; height: 42px; border-radius: 50%; object-fit: cover;'>"
                 else:
@@ -568,6 +583,16 @@ elif current_tab == "Chat":
 # TAB 4: PROFILE SECTION
 # ==============================================================================
 elif current_tab == "Profile":
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if row:
+            user = dict(row)
+            st.session_state.user = user
+        conn.close()
+
     st.markdown(f"""
         <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
             <div style="display: flex; align-items: center; gap: 20px;">
@@ -587,16 +612,11 @@ elif current_tab == "Profile":
         with st.form("edit_profile"):
             new_full = st.text_input("Full Name", value=user.get('full_name', ''))
             new_bio = st.text_area("Bio", value=user.get('bio', ''))
+            new_pic = st.text_input("Profile Picture URL (Optional)", value=user.get('profile_pic', ''))
+            
             if st.form_submit_button("Save Profile Settings"):
-                conn = get_db_connection()
-                if conn:
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE users SET full_name = ?, bio = ? WHERE username = ?", (new_full, new_bio, username))
-                    conn.commit()
-                    conn.close()
-                    user['full_name'] = new_full
-                    user['bio'] = new_bio
-                    st.success("Updated successfully!")
-                    st.rerun()
+                update_user_profile(username, new_full, new_bio, new_pic)
+                st.success("Profile updated successfully! Missing fields kept their previous values.")
+                st.rerun()
 
 st.markdown("<p style='text-align: center; color: #555; font-size: 0.7rem; letter-spacing: 2px; margin-top: 5rem;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
