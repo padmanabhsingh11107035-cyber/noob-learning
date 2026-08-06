@@ -988,7 +988,7 @@ else:
             finally:
                 conn.close()
 # ------------------ TAB 5: PROFILE & SETTINGS HUB ------------------
-elif st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
+if st.session_state.nav_tab == "Profile" or st.session_state.viewing_profile_id:
     profile_id = st.session_state.viewing_profile_id or user['user_id']
     db_type, conn = get_db_connection()
     if conn:
