@@ -353,7 +353,6 @@ elif current_tab == "Post":
 
 # 4. CHAT TAB (Strictly scoped layout ensuring st.chat_input stays within active chat view)
 elif current_tab == "Chat":
-    st.write("### Messages")
     db_type, conn = get_db_connection()
     all_users = []
     if conn:
@@ -363,6 +362,7 @@ elif current_tab == "Chat":
         conn.close()
 
     if st.session_state.active_chat_user is None:
+        st.write("### Messages")
         st.write("Select a user to start chatting:")
         if not all_users:
             st.info("No other users found yet.")
@@ -542,7 +542,7 @@ elif current_tab == "Profile":
     else:
         st.error("User not found.")
 
-st.markdown("<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
+st.markdown("<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=New := True and "<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>" or "")
 # ==============================================================================
 # 2. DATABASE CONFIGURATION & FALLBACK (Local SQLite or Cloud MySQL)
 # ==============================================================================
