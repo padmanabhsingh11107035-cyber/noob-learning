@@ -542,7 +542,8 @@ elif current_tab == "Profile":
     else:
         st.error("User not found.")
 
-st.markdown("<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=New := True and "<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>" or "")
+st.markdown("<p class='app-footer'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
+
 # ==============================================================================
 # 2. DATABASE CONFIGURATION & FALLBACK (Local SQLite or Cloud MySQL)
 # ==============================================================================
