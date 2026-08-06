@@ -70,21 +70,23 @@ def get_db_connection():
         return None, None
 
 def get_current_ist_time():
-    # Standard offset for IST (UTC +5:30)
     ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
     return datetime.datetime.now(ist_offset)
 
 def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
     db_type, conn = get_db_connection()
     if not conn:
+        st.error("Database connection failed.")
         return False
+    
     try:
         cursor = conn.cursor()
-        cursor.execute("""
+        query = """
             UPDATE users 
             SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
             WHERE user_id = ?
-        """, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
+        """
+        cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
         conn.commit()
         return True
     except Exception as e:
@@ -302,7 +304,7 @@ elif current_tab == "Post":
     if st.button("Share Post"):
         st.success("Post shared successfully!")
 
-# 4. CHAT TAB (Live messaging matching Image 4 design flow)
+# 4. CHAT TAB (Live messaging matching design flow)
 elif current_tab == "Chat":
     st.write("### Messages")
     db_type, conn = get_db_connection()
@@ -315,6 +317,8 @@ elif current_tab == "Chat":
 
     if st.session_state.active_chat_user is None:
         st.write("Select a user to start chatting:")
+        if not all_users:
+            st.info("No other users found yet.")
         for peer in all_users:
             peer_dict = dict(peer)
             col_c1, col_c2 = st.columns([3, 1])
@@ -368,7 +372,7 @@ elif current_tab == "Chat":
                     conn.close()
                     st.rerun()
 
-# 5. PROFILE TAB (Instagram Style layout matching Image 2)
+# 5. PROFILE TAB (Instagram Style layout)
 elif current_tab == "Profile":
     target_username = st.session_state.viewing_user or user['username']
     
@@ -433,10 +437,10 @@ elif current_tab == "Profile":
         else:
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
-                if st.button("Follow", use_container_width=True):
+                if st.button("Follow", use_container_width=True, key="profile_follow_btn"):
                     st.success(f"You are now following @{profile_data['username']}!")
             with btn_col2:
-                if st.button("Message", use_container_width=True):
+                if st.button("Message", use_container_width=True, key="profile_message_btn"):
                     st.session_state.active_chat_user = profile_data['username']
                     st.session_state.nav_option = "Chat"
                     st.rerun()
@@ -448,93 +452,6 @@ elif current_tab == "Profile":
         st.error("User not found.")
 
 st.markdown("<p style='text-align: center; color: #8e8e8e; font-size: 12px; margin-top: 60px;'>POWERED BY SARAAH ROBOTICS</p>", unsafe_allow_html=True)
-from zoneinfo import ZoneInfo  
-def get_current_ist_time():
-    # IST is UTC +5:30 fixed
-    ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-    return datetime.datetime.now(ist_offset)
-# Page config
-st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
-
-def get_db_connection():
-    """Connects to SQLite and automatically ensures the users table and all columns exist."""
-    try:
-        conn = sqlite3.connect('database.db', check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE,
-                password TEXT,
-                name TEXT,
-                bio TEXT,
-                age INTEGER,
-                gender TEXT,
-                birth_date TEXT,
-                profile_pic BLOB
-            )
-        """)
-        conn.commit()
-        
-        # Automatically add any missing columns to an existing table
-        cursor.execute("PRAGMA table_info(users)")
-        existing_cols = [row[1] for row in cursor.fetchall()]
-        
-        col_definitions = {
-            'username': 'TEXT UNIQUE',
-            'password': 'TEXT',
-            'name': 'TEXT',
-            'bio': 'TEXT',
-            'age': 'INTEGER',
-            'gender': 'TEXT',
-            'birth_date': 'TEXT',
-            'profile_pic': 'BLOB'
-        }
-        
-        for col, col_type in col_definitions.items():
-            if col not in existing_cols:
-                try:
-                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
-                    conn.commit()
-                except:
-                    pass
-
-        return "sqlite", conn
-    except Exception as e:
-        st.error(f"Database connection error: {e}")
-        return None, None
-
-def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
-    db_type, conn = get_db_connection()
-    if not conn:
-        st.error("Database connection failed.")
-        return False
-    
-    try:
-        cursor = conn.cursor()
-        query = """
-            UPDATE users 
-            SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
-            WHERE user_id = ?
-        """
-        cursor.execute(query, (new_name, new_bio, int(new_age), new_gender, new_birth_date, user_id))
-        conn.commit()
-        return True
-    except Exception as e:
-        st.error(f"SQL Update Failed: {e}")
-        return False
-    finally:
-        conn.close()
-
-# Initialize session state for authentication
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'user' not in st.session_state:
-    st.session_state.user = None
-if 'auth_mode' not in st.session_state:
-    st.session_state.auth_mode = "login"
 
 # --- CUSTOM CSS FOR GREEN BUTTON ---
 st.markdown("""
