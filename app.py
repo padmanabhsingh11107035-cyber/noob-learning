@@ -4,6 +4,27 @@ import datetime
 import base64
 import logging
 import sys
+import sqlite3
+
+conn = sqlite3.connect('database.db')
+cursor = conn.cursor()
+cursor.execute('DROP TABLE IF EXISTS users;')
+cursor.execute("""
+    CREATE TABLE users (
+        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT,
+        name TEXT,
+        bio TEXT,
+        age INTEGER,
+        gender TEXT,
+        birth_date TEXT,
+        profile_pic BLOB
+    )
+""")
+conn.commit()
+conn.close()
+print("Database table reset successfully!")
 
 # Page config
 st.set_page_config(page_title="Noob Learning", page_icon="📚", layout="centered")
