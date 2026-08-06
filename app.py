@@ -12,7 +12,7 @@ import pymysql
 import time
 
 def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, new_birth_date):
-    """Safely executes the profile update query with proper error handling and logging."""
+    """Safely executes the profile update query excluding the name column to prevent errors."""
     db_type, conn = get_db_connection()
     if not conn:
         st.error("Database connection failed.")
@@ -20,7 +20,6 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
     
     try:
         cursor = conn.cursor()
-        s_name = sanitize_input(new_name)
         s_bio = sanitize_input(new_bio)
         s_gender = sanitize_input(new_gender)
         s_birth = sanitize_input(new_birth_date)
@@ -29,17 +28,17 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
         if db_type == "mysql":
             query = """
                 UPDATE users 
-                SET full_name = %s, bio = %s, age = %s, gender = %s, birth_date = %s 
+                SET bio = %s, age = %s, gender = %s, birth_date = %s 
                 WHERE user_id = %s
             """
-            cursor.execute(query, (s_name, s_bio, s_age, s_gender, s_birth, user_id))
+            cursor.execute(query, (s_bio, s_age, s_gender, s_birth, user_id))
         else:
             query = """
                 UPDATE users 
-                SET full_name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
+                SET bio = ?, age = ?, gender = ?, birth_date = ? 
                 WHERE user_id = ?
             """
-            cursor.execute(query, (s_name, s_bio, s_age, s_gender, s_birth, user_id))
+            cursor.execute(query, (s_bio, s_age, s_gender, s_birth, user_id))
             
         conn.commit()
         return True
