@@ -221,7 +221,7 @@ if not st.session_state.logged_in:
                         else:
                             st.error("Incorrect username or password.")
             
-            if st.button("Create new account", use_container_width=True):
+            if st.button("Create new account", use_container_width=True, key="create_acc_btn"):
                 st.session_state.auth_mode = "signup"
                 st.rerun()
         else:
@@ -250,7 +250,7 @@ if not st.session_state.logged_in:
                     else:
                         st.warning("Please fill in all fields.")
                         
-            if st.button("Back to Login", use_container_width=True):
+            if st.button("Back to Login", use_container_width=True, key="back_login_btn"):
                 st.session_state.auth_mode = "login"
                 st.rerun()
 
@@ -269,37 +269,37 @@ st.markdown("""
 # Top Bar actions
 col_logout, col_settings = st.columns([1, 4])
 with col_logout:
-    if st.button("Log Out"):
+    if st.button("Log Out", key="top_logout_btn"):
         st.session_state.logged_in = False
         st.session_state.user = None
         st.rerun()
 
-# Navigation Tabs Bar
+# Navigation Tabs Bar with distinct keys to prevent element id clashes
 nav_cols = st.columns(5)
 with nav_cols[0]:
-    if st.button("🏠 Home", use_container_width=True):
+    if st.button("🏠 Home", use_container_width=True, key="nav_home_btn"):
         st.session_state.nav_option = "Home"
         st.session_state.viewing_user = None
         st.rerun()
 with nav_cols[1]:
-    if st.button("🔍 Search", use_container_width=True):
+    if st.button("🔍 Search", use_container_width=True, key="nav_search_btn"):
         st.session_state.nav_option = "Search"
         st.session_state.viewing_user = None
         st.rerun()
 with nav_cols[2]:
-    if st.button("➕ Post", use_container_width=True):
+    if st.button("➕ Post", use_container_width=True, key="nav_post_btn"):
         st.session_state.nav_option = "Post"
         st.session_state.viewing_user = None
         st.rerun()
 with nav_cols[3]:
-    if st.button("💬 Chat", use_container_width=True):
+    if st.button("💬 Chat", use_container_width=True, key="nav_chat_btn"):
         st.session_state.nav_option = "Chat"
         st.session_state.viewing_user = None
         st.rerun()
 with nav_cols[4]:
-    if st.button("👤 Profile", use_container_width=True):
+    if st.button("👤 Profile", use_container_width=True, key="nav_profile_btn"):
         st.session_state.nav_option = "Profile"
-        st.session_state.viewing_user = user['username']  # view own profile
+        st.session_state.viewing_user = user['username']
         st.rerun()
 
 st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
@@ -312,10 +312,10 @@ if current_tab == "Home":
     st.write("### Feed")
     st.info("Welcome to the Noob Learning main feed! Share your progress or check out your peers.")
 
-# 2. SEARCH TAB (Find users and view their profiles)
+# 2. SEARCH TAB
 elif current_tab == "Search":
     st.write("### Search Users")
-    search_query = st.text_input("Search by username or name", placeholder="Type username here...")
+    search_query = st.text_input("Search by username or name", placeholder="Type username here...", key="search_box_input")
     
     db_type, conn = get_db_connection()
     if conn:
@@ -334,7 +334,7 @@ elif current_tab == "Search":
             with col_u1:
                 st.markdown(f"**@{u_dict['username']}** — *{u_dict['name'] or 'No Name'}*")
             with col_u2:
-                if st.button("View Profile", key=f"view_{u_dict['user_id']}"):
+                if st.button("View Profile", key=f"view_profile_btn_{u_dict['user_id']}"):
                     st.session_state.viewing_user = u_dict['username']
                     st.session_state.nav_option = "Profile"
                     st.rerun()
@@ -342,12 +342,12 @@ elif current_tab == "Search":
 # 3. POST TAB
 elif current_tab == "Post":
     st.write("### Create a New Post")
-    uploaded_file = st.file_uploader("Choose an image or video", type=["jpg", "jpeg", "png", "mp4"])
-    caption = st.text_area("Write a caption...")
-    if st.button("Share Post"):
+    uploaded_file = st.file_uploader("Choose an image or video", type=["jpg", "jpeg", "png", "mp4"], key="post_file_uploader")
+    caption = st.text_area("Write a caption...", key="post_caption_area")
+    if st.button("Share Post", key="share_post_btn"):
         st.success("Post shared successfully!")
 
-# 4. CHAT TAB (Live messaging matching design flow)
+# 4. CHAT TAB (Live Messaging with automatic instant updates)
 elif current_tab == "Chat":
     st.write("### Messages")
     db_type, conn = get_db_connection()
@@ -368,21 +368,20 @@ elif current_tab == "Chat":
             with col_c1:
                 st.markdown(f"💬 **{peer_dict['username']}** ({peer_dict['name'] or 'User'})")
             with col_c2:
-                if st.button("Chat", key=f"chat_btn_{peer_dict['user_id']}"):
+                if st.button("Chat", key=f"start_chat_btn_{peer_dict['user_id']}"):
                     st.session_state.active_chat_user = peer_dict['username']
                     st.rerun()
     else:
         peer_name = st.session_state.active_chat_user
-        if st.button("⬅ Back to Inbox"):
+        if st.button("⬅ Back to Inbox", key="back_inbox_btn"):
             st.session_state.active_chat_user = None
             st.rerun()
 
         st.markdown(f"### Chatting with: **{peer_name}**")
         
-        # Chat container box
-        chat_container = st.container()
+        # Chat history container display
+        chat_container = st.container(height=380)
         
-        # Fetch messages between logged-in user and active peer
         db_type, conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
@@ -401,21 +400,19 @@ elif current_tab == "Chat":
                     else:
                         st.markdown(f"<div class='chat-bubble-peer'>{msg['message']}</div>", unsafe_allow_html=True)
 
-        # Send message form
-        with st.form("chat_send_form", clear_on_submit=True):
-            new_msg = st.text_input("Message...", placeholder=f"Reply to {peer_name}...", label_visibility="collapsed")
-            send_btn = st.form_submit_button("Send")
-            if send_btn and new_msg:
-                db_type, conn = get_db_connection()
-                if conn:
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO messages (sender, receiver, message, timestamp) VALUES (?, ?, ?, ?)",
-                                   (user['username'], peer_name, new_msg, str(get_current_ist_time())))
-                    conn.commit()
-                    conn.close()
-                    st.rerun()
+        # Real-time message submission via st.chat_input (updates instantly without lag)
+        user_msg = st.chat_input(f"Reply to {peer_name}...", key="live_chat_input_box")
+        if user_msg:
+            db_type, conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO messages (sender, receiver, message, timestamp) VALUES (?, ?, ?, ?)",
+                               (user['username'], peer_name, user_msg, str(get_current_ist_time())))
+                conn.commit()
+                conn.close()
+                st.rerun()
 
-# 5. PROFILE TAB (Instagram Style layout)
+# 5. PROFILE TAB
 elif current_tab == "Profile":
     target_username = st.session_state.viewing_user or user['username']
     
@@ -432,18 +429,15 @@ elif current_tab == "Profile":
     if profile_data:
         is_own_profile = (profile_data['username'] == user['username'])
         
-        # Top Header row: Profile Picture & Stats
         col_img, col_stats = st.columns([1, 2])
         with col_img:
             if profile_data.get('profile_pic'):
                 st.image(profile_data['profile_pic'], width=110)
             else:
-                st.markdown("👤", unsafe_allow_html=True) # Placeholder avatar
+                st.markdown("👤", unsafe_allow_html=True)
                 
         with col_stats:
             st.markdown(f"### @{profile_data['username']}")
-            
-            # Instagram-style stats counter row
             stat_c1, stat_c2, stat_c3 = st.columns(3)
             with stat_c1:
                 st.markdown("**0**\nPosts")
@@ -452,21 +446,19 @@ elif current_tab == "Profile":
             with stat_c3:
                 st.markdown("**15**\nFollowing")
 
-        # Bio details section
         st.markdown(f"**{profile_data.get('name') or profile_data['username']}**")
         st.markdown(f"{profile_data.get('bio') or 'No bio added yet.'}")
         
-        # Action Buttons (Follow / Message / Edit Profile)
         if is_own_profile:
             with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
                 st.write("### Edit Profile Details")
                 
                 st.markdown("#### Update Profile Picture")
-                uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader")
+                uploaded_pic = st.file_uploader("Choose a new profile picture (PNG/JPG)", type=["png", "jpg", "jpeg"], key="profile_pic_uploader_tab")
 
                 if uploaded_pic is not None:
                     st.image(uploaded_pic, width=150, caption="New Profile Picture Preview")
-                    if st.button("Save Profile Picture", key="save_profile_pic_btn"):
+                    if st.button("Save Profile Picture", key="save_profile_pic_btn_action"):
                         try:
                             pic_bytes = uploaded_pic.getvalue()
                             db_type, conn = get_db_connection()
@@ -532,10 +524,10 @@ elif current_tab == "Profile":
         else:
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
-                if st.button("Follow", use_container_width=True, key="profile_follow_btn"):
+                if st.button("Follow", use_container_width=True, key="profile_follow_btn_action"):
                     st.success(f"You are now following @{profile_data['username']}!")
             with btn_col2:
-                if st.button("Message", use_container_width=True, key="profile_message_btn"):
+                if st.button("Message", use_container_width=True, key="profile_message_btn_action"):
                     st.session_state.active_chat_user = profile_data['username']
                     st.session_state.nav_option = "Chat"
                     st.rerun()
