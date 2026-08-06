@@ -9,7 +9,7 @@ import sys
 st.set_page_config(page_title="Noob Learning", page_icon="😊", layout="centered")
 
 def get_db_connection():
-    """Connects to SQLite and automatically ensures the users table exists."""
+    """Connects to SQLite and automatically ensures the users table and all columns exist."""
     try:
         conn = sqlite3.connect('database.db', check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -29,6 +29,30 @@ def get_db_connection():
             )
         """)
         conn.commit()
+        
+        # Automatically add any missing columns to an existing table
+        cursor.execute("PRAGMA table_info(users)")
+        existing_cols = [row[1] for row in cursor.fetchall()]
+        
+        col_definitions = {
+            'username': 'TEXT UNIQUE',
+            'password': 'TEXT',
+            'name': 'TEXT',
+            'bio': 'TEXT',
+            'age': 'INTEGER',
+            'gender': 'TEXT',
+            'birth_date': 'TEXT',
+            'profile_pic': 'BLOB'
+        }
+        
+        for col, col_type in col_definitions.items():
+            if col not in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+                    conn.commit()
+                except:
+                    pass
+
         return "sqlite", conn
     except Exception as e:
         st.error(f"Database connection error: {e}")
@@ -42,22 +66,6 @@ def safe_update_user_profile(user_id, new_name, new_bio, new_age, new_gender, ne
     
     try:
         cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(users)")
-        existing_cols = [row[1] for row in cursor.fetchall()]
-        
-        if 'name' not in existing_cols:
-            cursor.execute("ALTER TABLE users ADD COLUMN name TEXT")
-        if 'bio' not in existing_cols:
-            cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
-        if 'age' not in existing_cols:
-            cursor.execute("ALTER TABLE users ADD COLUMN age INTEGER")
-        if 'gender' not in existing_cols:
-            cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
-        if 'birth_date' not in existing_cols:
-            cursor.execute("ALTER TABLE users ADD COLUMN birth_date TEXT")
-        if 'profile_pic' not in existing_cols:
-            cursor.execute("ALTER TABLE users ADD COLUMN profile_pic BLOB")
-            
         query = """
             UPDATE users 
             SET name = ?, bio = ?, age = ?, gender = ?, birth_date = ? 
