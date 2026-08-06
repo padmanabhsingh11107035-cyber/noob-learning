@@ -5,6 +5,9 @@ import base64
 import logging
 import sys
 
+# Page config
+st.set_page_config(page_title="Instagram", page_icon="📷", layout="centered")
+
 def get_db_connection():
     """Connects to SQLite and automatically ensures the users table exists."""
     try:
@@ -74,63 +77,82 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user' not in st.session_state:
     st.session_state.user = None
+if 'auth_mode' not in st.session_state:
+    st.session_state.auth_mode = "login"
 
-# --- LOGIN / SIGNUP SCREEN ---
+# --- INSTAGRAM-STYLE LOGIN / SIGNUP SCREEN ---
 if not st.session_state.logged_in:
-    st.title("🔐 Welcome to Noob Learning")
-    st.write("Please log in or sign up to continue.")
-    
-    auth_mode = st.radio("Choose Mode", ["Login", "Sign Up"], horizontal=True)
-    
-    db_type, conn = get_db_connection()
-    
-    if auth_mode == "Sign Up":
-        with st.form("signup_form"):
-            new_user = st.text_input("Choose Username")
-            new_pass = st.text_input("Choose Password", type="password")
-            signup_btn = st.form_submit_button("Create Account")
-            
-            if signup_btn:
-                if new_user and new_pass:
-                    try:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<div style='text-align: center; font-size: 64px; margin-top: 30px; margin-bottom: 20px;'>📷</div>", unsafe_allow_html=True)
+        
+        if st.session_state.auth_mode == "login":
+            with st.form("insta_login_form"):
+                username = st.text_input("", placeholder="Username, email or mobile number", label_visibility="collapsed")
+                password = st.text_input("", placeholder="Password", type="password", label_visibility="collapsed")
+                
+                login_submitted = st.form_submit_button("Log in", use_container_width=True)
+                
+                if login_submitted:
+                    db_type, conn = get_db_connection()
+                    if conn:
                         cursor = conn.cursor()
-                        cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (?, ?, ?, ?)", 
-                                       (new_user, new_pass, new_user, "Welcome to Noob Learning!"))
-                        conn.commit()
-                        st.success("Account created successfully! Please switch to Login.")
-                    except sqlite3.IntegrityError:
-                        st.error("Username already exists. Choose another one.")
-                    finally:
+                        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+                        user_row = cursor.fetchone()
                         conn.close()
-                else:
-                    st.warning("Please fill in all fields.")
-                    
-    else:  # Login Mode
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            login_btn = st.form_submit_button("Login")
-            
-            if login_btn:
-                if conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
-                    user_row = cursor.fetchone()
-                    conn.close()
-                    
-                    if user_row:
-                        st.session_state.logged_in = True
-                        st.session_state.user = dict(user_row)
-                        st.success("Logged in successfully!")
-                        st.rerun()
+                        
+                        if user_row:
+                            st.session_state.logged_in = True
+                            st.session_state.user = dict(user_row)
+                            st.rerun()
+                        else:
+                            st.error("Incorrect username or password.")
                     else:
-                        st.error("Invalid username or password.")
-                else:
-                    st.error("Database connection failed.")
-                    
-    st.stop()  # Stop execution here so the rest of the app doesn't show until logged in
+                        st.error("Database error.")
 
-# --- MAIN APP (Only runs after successful login) ---
+            st.markdown("<p style='text-align: center; color: #00376b; font-size: 14px; margin-top: 15px;'>Forgot password?</p>", unsafe_allow_html=True)
+            
+            st.markdown("<hr style='margin: 25px 0;'>", unsafe_allow_html=True)
+            
+            if st.button("Create new account", use_container_width=True):
+                st.session_state.auth_mode = "signup"
+                st.rerun()
+                
+        else:
+            with st.form("insta_signup_form"):
+                st.markdown("<h4 style='text-align: center; color: #666;'>Sign up to see photos and videos from your friends.</h4>", unsafe_allow_html=True)
+                new_user = st.text_input("", placeholder="Mobile Number, username or email", label_visibility="collapsed")
+                new_pass = st.text_input("", placeholder="Password", type="password", label_visibility="collapsed")
+                signup_submitted = st.form_submit_button("Sign up", use_container_width=True)
+                
+                if signup_submitted:
+                    if new_user and new_pass:
+                        db_type, conn = get_db_connection()
+                        if conn:
+                            try:
+                                cursor = conn.cursor()
+                                cursor.execute("INSERT INTO users (username, password, name, bio) VALUES (?, ?, ?, ?)", 
+                                               (new_user, new_pass, new_user, "Noob Learning User"))
+                                conn.commit()
+                                conn.close()
+                                st.success("Account created successfully!")
+                                st.session_state.auth_mode = "login"
+                                st.rerun()
+                            except sqlite3.IntegrityError:
+                                st.error("Username already exists.")
+                                conn.close()
+                    else:
+                        st.warning("Please fill in all fields.")
+                        
+            if st.button("Back to Login", use_container_width=True):
+                st.session_state.auth_mode = "login"
+                st.rerun()
+
+        st.markdown("<p style='text-align: center; color: #8e8e8e; font-size: 12px; margin-top: 60px;'>∞ Meta</p>", unsafe_allow_html=True)
+
+    st.stop()
+
+# --- MAIN APP ---
 user = st.session_state.user
 profile_id = user.get('user_id')
 
@@ -155,8 +177,6 @@ if st.button("Log Out"):
     st.session_state.user = None
     st.rerun()
 
-########################################################################################################################
-# FORM WRAPPER WITH CORRECT ALIGNED INDENTATION
 if profile_user.get('user_id') == user.get('user_id'):
     with st.expander("⚙️ Settings Hub (Saved Reels, Liked Reels & Edit Details)"):
         st.write("### Edit Profile Details")
