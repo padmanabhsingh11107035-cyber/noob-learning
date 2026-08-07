@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 1. DATABASE SETUP & CONNECTION (ROBUST MIGRATION WITH UNSEEN TRACKING)
+# 1. DATABASE SETUP & CONNECTION (ROBUST MIGRATION WITH GROUP ROLES & UNSEEN TRACKING)
 # ==============================================================================
 
 
@@ -114,6 +114,15 @@ def init_db():
             )
         """)
     cursor.execute("""
+            CREATE TABLE IF NOT EXISTS group_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name TEXT,
+                username TEXT,
+                role TEXT,
+                UNIQUE(group_name, username)
+            )
+        """)
+    cursor.execute("""
             CREATE TABLE IF NOT EXISTS group_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 group_name TEXT,
@@ -125,7 +134,7 @@ def init_db():
             )
         """)
 
-    # Check columns for messages table (specifically is_read)
+    # Check columns for messages table
     cursor.execute("PRAGMA table_info(messages)")
     m_cols = [col["name"] for col in cursor.fetchall()]
     if "is_read" not in m_cols:
@@ -355,6 +364,18 @@ def update_user_profile(
               "UPDATE follows SET following = ? WHERE following = ?",
               (target_username, old_username),
           )
+          cursor.execute(
+              "UPDATE chat_groups SET created_by = ? WHERE created_by = ?",
+              (target_username, old_username),
+          )
+          cursor.execute(
+              "UPDATE group_members SET username = ? WHERE username = ?",
+              (target_username, old_username),
+          )
+          cursor.execute(
+              "UPDATE group_messages SET sender = ? WHERE sender = ?",
+              (target_username, old_username),
+          )
 
         conn.commit()
         success = True
@@ -381,43 +402,58 @@ if "chat_sub_mode" not in st.session_state:
   st.session_state.chat_sub_mode = "Direct Messages"
 if "show_edit_profile" not in st.session_state:
   st.session_state.show_edit_profile = False
+if "app_theme" not in st.session_state:
+  st.session_state.app_theme = "Dark"
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME (OPTIMIZED & ANTI-LAG)
+# 2. DYNAMIC THEME & CSS ENGINE (RESTORED THEME OPTION & STABLE BUTTON FIXES)
 # ==============================================================================
+is_dark = st.session_state.app_theme == "Dark"
+bg_gradient = (
+    "linear-gradient(135deg, #0d1117 0%, #161b22 100%)"
+    if is_dark
+    else "linear-gradient(135deg, #f4f6f8 0%, #e9ecef 100%)"
+)
+card_bg = "rgba(22, 27, 34, 0.85)" if is_dark else "rgba(255, 255, 255, 0.95)"
+text_color = "#ffffff" if is_dark else "#1f2428"
+sub_text_color = "#8b949e" if is_dark else "#586069"
+border_color = "rgba(255, 255, 255, 0.08)" if is_dark else "rgba(0, 0, 0, 0.1)"
+input_bg = "rgba(13, 17, 23, 0.7)" if is_dark else "#ffffff"
+
 st.markdown(
-    """
+    f"""
 <style>
-    .stApp {
-        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-        color: #ffffff;
-    }
-    header {visibility: hidden;}
+    .stApp {{
+        background: {bg_gradient};
+        color: {text_color};
+    }}
+    header {{visibility: hidden;}}
     
-    .auth-container {
+    .auth-container {{
         max-width: 380px;
         margin: 40px auto;
-        background: rgba(22, 27, 34, 0.85);
+        background: {card_bg};
         backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid {border_color};
         border-radius: 12px;
         padding: 35px 30px;
-        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
-    }
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+    }}
     
-    .auth-footer-box {
+    .auth-footer-box {{
         max-width: 380px;
         margin: 15px auto 40px auto;
-        background: rgba(22, 27, 34, 0.85);
+        background: {card_bg};
         backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid {border_color};
         border-radius: 12px;
         padding: 20px 30px;
         text-align: center;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-    }
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }}
 
-    div.stButton > button, button[kind="secondary"], button[kind="primary"], [data-testid="baseButton-secondary"], [data-testid="baseButton-primary"] {
+    /* Robust Button Styling to Ensure 100% Clickability */
+    div.stButton > button, button[kind="secondary"], button[kind="primary"], [data-testid="baseButton-secondary"], [data-testid="baseButton-primary"] {{
         background: #00E676 !important;
         background-color: #00E676 !important;
         color: #000000 !important;
@@ -430,36 +466,37 @@ st.markdown(
         box-shadow: 0 4px 15px rgba(0, 230, 118, 0.4) !important;
         opacity: 1 !important;
         visibility: visible !important;
-    }
+        cursor: pointer !important;
+    }}
     
-    div.stButton > button *, button[kind="secondary"] *, button[kind="primary"] * {
+    div.stButton > button *, button[kind="secondary"] *, button[kind="primary"] * {{
         color: #000000 !important;
         -webkit-text-fill-color: #000000 !important;
         font-weight: 900 !important;
-    }
+    }}
 
-    div.stButton > button:hover, button[kind="secondary"]:hover, button[kind="primary"]:hover {
+    div.stButton > button:hover, button[kind="secondary"]:hover, button[kind="primary"]:hover {{
         transform: translateY(-2px);
         box-shadow: 0 6px 22px rgba(0, 230, 118, 0.7) !important;
         background: #69F0AE !important;
         background-color: #69F0AE !important;
         color: #000000 !important;
-    }
+    }}
     
-    input, textarea, select {
-        background-color: rgba(13, 17, 23, 0.7) !important;
-        color: white !important;
-        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    input, textarea, select {{
+        background-color: {input_bg} !important;
+        color: {text_color} !important;
+        border: 1px solid {border_color} !important;
         border-radius: 8px !important;
-    }
+    }}
 
-    .stTextInput label, .stSelectbox label, .stTextArea label, .stFileUploader label {
-        color: #ffffff !important;
+    .stTextInput label, .stSelectbox label, .stTextArea label, .stFileUploader label {{
+        color: {text_color} !important;
         font-weight: 700 !important;
         font-size: 1rem !important;
-    }
+    }}
 
-    .unread-badge {
+    .unread-badge {{
         background-color: #00C853;
         color: #000;
         border-radius: 50%;
@@ -471,22 +508,8 @@ st.markdown(
         min-width: 22px;
         text-align: center;
         box-shadow: 0 2px 8px rgba(0, 200, 83, 0.5);
-    }
+    }}
 </style>
-
-<script>
-    // Optimized auto-scroll engine (Smooth & non-blocking to prevent lag)
-    function forceAutoScroll() {
-        const doc = window.parent.document;
-        const containers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
-        containers.forEach(c => {
-            if (c.scrollHeight > 250) {
-                c.scrollTop = c.scrollHeight;
-            }
-        });
-    }
-    setInterval(forceAutoScroll, 300);
-</script>
 """,
     unsafe_allow_html=True,
 )
@@ -503,7 +526,7 @@ if not st.session_state.logged_in:
     st.markdown(
         """
             <div style="text-align: center; margin-bottom: 25px;">
-                <h1 style="font-family: 'Brush Script MT', cursive, sans-serif; font-size: 3rem; font-weight: normal; margin: 0; background: linear-gradient(45deg, #ffffff, #a5d6a7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1px;">Noob Learning</h1>
+                <h1 style="font-family: 'Brush Script MT', cursive, sans-serif; font-size: 3rem; font-weight: normal; margin: 0; background: linear-gradient(45deg, #00E676, #00C853); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1px;">Noob Learning</h1>
                 <p style="color: #00C853; font-size: 0.7rem; letter-spacing: 2px; margin-top: 5px; font-weight: 600;">POWERED BY SARAAH ROBOTICS</p>
             </div>
         """,
@@ -542,8 +565,8 @@ if not st.session_state.logged_in:
       col_txt, col_btn = st.columns([2.5, 1])
       with col_txt:
         st.markdown(
-            "<p style='margin: 6px 0 0 0; font-size: 14px; color:"
-            " #c9d1d9;'>Don't have an account?</p>",
+            "<p style='margin: 6px 0 0 0; font-size: 14px;'>Don't have an"
+            " account?</p>",
             unsafe_allow_html=True,
         )
       with col_btn:
@@ -556,7 +579,7 @@ if not st.session_state.logged_in:
       with st.form("signup_form"):
         st.markdown(
             "<h3 style='text-align: center; font-size: 1.2rem; margin-bottom:"
-            " 15px; color: #fff;'>Create a New Account</h3>",
+            " 15px;'>Create a New Account</h3>",
             unsafe_allow_html=True,
         )
         new_user = st.text_input(
@@ -596,8 +619,8 @@ if not st.session_state.logged_in:
       col_txt2, col_btn2 = st.columns([2.2, 1.2])
       with col_txt2:
         st.markdown(
-            "<p style='margin: 6px 0 0 0; font-size: 14px; color:"
-            " #c9d1d9;'>Have an account?</p>",
+            "<p style='margin: 6px 0 0 0; font-size: 14px;'>Have an"
+            " account?</p>",
             unsafe_allow_html=True,
         )
       with col_btn2:
@@ -616,15 +639,21 @@ username = user["username"]
 user_id = user.get("user_id", "N/A")
 first_letter = username[0].upper()
 
-header_col1, header_col2, header_col3, header_col4, header_col5, header_col_profile = (
-    st.columns([2.5, 1, 1, 1, 1, 1.8])
-)
+(
+    header_col1,
+    header_col2,
+    header_col3,
+    header_col4,
+    header_col5,
+    header_col_theme,
+    header_col_profile,
+) = st.columns([2.2, 0.9, 0.9, 0.9, 0.9, 1.1, 1.6])
 
 with header_col1:
   st.markdown(
       """
         <div>
-            <h3 style='margin:0; color:#ff4b4b; font-size: 1.5rem;'>⚡ Noob Learning</h3>
+            <h3 style='margin:0; color:#00E676; font-size: 1.4rem;'>⚡ Noob Learning</h3>
             <p style='margin:0; font-size: 0.65rem; color:#888; letter-spacing:1px;'>POWERED BY SARAAH ROBOTICS</p>
         </div>
     """,
@@ -660,6 +689,17 @@ with header_col5:
     st.session_state.show_edit_profile = False
     st.rerun()
 
+with header_col_theme:
+  new_theme = st.selectbox(
+      "Theme",
+      ["Dark", "Light"],
+      index=0 if st.session_state.app_theme == "Dark" else 1,
+      label_visibility="collapsed",
+  )
+  if new_theme != st.session_state.app_theme:
+    st.session_state.app_theme = new_theme
+    st.rerun()
+
 with header_col_profile:
   prof_col_avatar, prof_col_name, prof_col_btn = st.columns([1, 2, 1.5])
   with prof_col_avatar:
@@ -682,8 +722,8 @@ with header_col_profile:
       )
   with prof_col_name:
     st.markdown(
-        f"<p style='color: white; font-weight: bold; font-size: 13px; margin:"
-        f" 8px 0 0 0;'>@{username}</p>",
+        f"<p style='font-weight: bold; font-size: 13px; margin: 8px 0 0"
+        f" 0;'>@{username}</p>",
         unsafe_allow_html=True,
     )
   with prof_col_btn:
@@ -693,8 +733,7 @@ with header_col_profile:
       st.rerun()
 
 st.markdown(
-    "<hr style='border: 0.5px solid #30363d; margin-top: 10px; margin-bottom:"
-    " 20px;'>",
+    f"<hr style='border: 0.5px solid {border_color}; margin-top: 10px; margin-bottom: 20px;'>",
     unsafe_allow_html=True,
 )
 
@@ -758,12 +797,12 @@ if current_tab == "Feed":
         formatted_caption = p_dict["caption"].replace("\n", "<br>")
         st.markdown(
             f"""
-                    <div style="background-color: #161b22; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #30363d;">
+                    <div style="background-color: {card_bg}; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid {border_color};">
                         <span style="background: #00C853; color: #0e1117; padding: 2px 8px; border-radius: 50%; font-weight: bold;">{p_dict['username'][0].upper()}</span>
-                        <strong style="color: white; margin-left: 8px;">@{p_dict['username']}</strong>
+                        <strong style="margin-left: 8px;">@{p_dict['username']}</strong>
                         <span style="color: #888; font-size: 11px; margin-left: 10px;">({p_dict['account_type']})</span>
                         <p style="color: #888; font-size: 11px; margin-left: 36px; margin-top: -2px;">{p_dict['timestamp']}</p>
-                        <p style="color: #ddd; margin-top: 10px;">{formatted_caption}</p>
+                        <p style="margin-top: 10px;">{formatted_caption}</p>
                     </div>
                 """,
             unsafe_allow_html=True,
@@ -771,10 +810,10 @@ if current_tab == "Feed":
 
   with side_col:
     st.markdown(
-        """
-            <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d;">
-                <h3 style="color: white; margin-top: 0;">🤖 Saraah Robotics Hub</h3>
-                <p style="color: #ccc; font-size: 14px;">Welcome to <b>Noob Learning</b>! Connect with peers, share robotics updates, upload reels, and exchange live text, images, videos, and documents seamlessly.</p>
+        f"""
+            <div style="background-color: {card_bg}; padding: 20px; border-radius: 12px; border: 1px solid {border_color};">
+                <h3 style="margin-top: 0;">🤖 Saraah Robotics Hub</h3>
+                <p style="font-size: 14px;">Welcome to <b>Noob Learning</b>! Connect with peers, share robotics updates, upload reels, and exchange live text, images, videos, and documents seamlessly.</p>
             </div>
         """,
         unsafe_allow_html=True,
@@ -811,9 +850,9 @@ elif current_tab == "Reels":
         formatted_reel_caption = r_dict["caption"].replace("\n", "<br>")
         st.markdown(
             f"""
-                    <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 20px;">
-                        <strong style="color: white;">@{r_dict['username']}</strong>
-                        <p style="font-size: 15px; color: #eee; margin-top: 10px;">{formatted_reel_caption}</p>
+                    <div style="background-color: {card_bg}; padding: 20px; border-radius: 12px; border: 1px solid {border_color}; margin-bottom: 20px;">
+                        <strong>@{r_dict['username']}</strong>
+                        <p style="font-size: 15px; margin-top: 10px;">{formatted_reel_caption}</p>
                     </div>
                 """,
             unsafe_allow_html=True,
@@ -841,7 +880,7 @@ elif current_tab == "Reels":
             st.rerun()
 
 # ==============================================================================
-# TAB 3: CHAT & GROUP SECTION (WITH WHATSAPP-STYLE UNREAD BADGES & LEFT-FACING BACK BUTTON)
+# TAB 3: CHAT & PRIVATE GROUP SECTION WITH ADMIN CONTROLS
 # ==============================================================================
 elif current_tab == "Chat":
   chat_mode_col1, chat_mode_col2 = st.columns(2)
@@ -857,7 +896,7 @@ elif current_tab == "Chat":
       st.rerun()
 
   st.markdown(
-      "<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>",
+      f"<hr style='border: 0.5px solid {border_color}; margin: 10px 0;'>",
       unsafe_allow_html=True,
   )
 
@@ -907,7 +946,7 @@ elif current_tab == "Chat":
           or search_query in p.get("full_name", "").lower()
       ]
 
-      # Lightweight polling fragment for unread count badges in chat list
+
       @st.fragment(run_every=1.5)
       def render_peer_list():
         conn_l = get_db_connection()
@@ -960,7 +999,6 @@ elif current_tab == "Chat":
             )
           with c_chat:
             if st.button("Chat ➔", key=f"dm_btn_{peer_uname}"):
-              # Mark all incoming messages from this user as read
               if conn_l:
                 cur_l.execute(
                     """
@@ -973,7 +1011,7 @@ elif current_tab == "Chat":
               st.session_state.active_chat_user = peer_uname
               st.rerun()
           st.markdown(
-              "<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>",
+              f"<hr style='border: 0.2px solid {border_color}; margin: 5px 0;'>",
               unsafe_allow_html=True,
           )
         if conn_l:
@@ -984,7 +1022,6 @@ elif current_tab == "Chat":
     else:
       peer_name = st.session_state.active_chat_user
 
-      # Mark messages from this peer as read immediately upon entering chat page
       conn_mark = get_db_connection()
       if conn_mark:
         cur_m = conn_mark.cursor()
@@ -1010,7 +1047,6 @@ elif current_tab == "Chat":
           peer_pic = p_row["profile_pic"]
         conn_p.close()
 
-      # Dedicated chat page with left-facing arrow back button
       c_back, c_logo, c_title, c_del = st.columns([1, 0.6, 3.4, 1])
       with c_back:
         if st.button("⬅ Back"):
@@ -1034,8 +1070,7 @@ elif current_tab == "Chat":
           )
       with c_title:
         st.markdown(
-            f"<h3 style='margin: 0; color: #fff; padding-top:"
-            f" 2px;'>@{peer_name}</h3>",
+            f"<h3 style='margin: 0; padding-top: 2px;'>@{peer_name}</h3>",
             unsafe_allow_html=True,
         )
       with c_del:
@@ -1056,9 +1091,10 @@ elif current_tab == "Chat":
             st.rerun()
 
       st.markdown(
-          "<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>",
+          f"<hr style='border: 0.5px solid {border_color}; margin: 10px 0;'>",
           unsafe_allow_html=True,
       )
+
 
       @st.fragment(run_every=1.0)
       def render_dm_fragment():
@@ -1075,7 +1111,6 @@ elif current_tab == "Chat":
               (username, peer_name, peer_name, username),
           )
           messages = cursor.fetchall()
-          # Mark incoming messages as read while viewing chat
           cursor.execute(
               """
                         UPDATE messages SET is_read = 1 
@@ -1194,31 +1229,48 @@ elif current_tab == "Chat":
       render_dm_fragment()
 
   # ----------------------------------------------------
-  # SUB-MODE B: GROUP CHATS
+  # SUB-MODE B: GROUP CHATS (PRIVATE WITH ADMIN CONTROLS)
   # ----------------------------------------------------
   else:
     if st.session_state.active_group_chat is None:
-      st.markdown("### 👥 Community Group Chats")
+      st.markdown("### 👥 Private Group Chats")
       st.markdown(
-          "<p style='color: #aaa;'>Create your own study or robotics group or"
-          " join existing ones to chat live with multiple users!</p>",
+          "<p style='color: #888;'>Create your own private group and select user"
+          " IDs to add members. Only added members can see and join the"
+          " group!</p>",
           unsafe_allow_html=True,
       )
 
+      # Fetch all users for member selection
+      conn_u = get_db_connection()
+      all_users = []
+      if conn_u:
+        cur_u = conn_u.cursor()
+        cur_u.execute("SELECT username FROM users WHERE username != ?", (username,))
+        all_users = [row["username"] for row in cur_u.fetchall()]
+        conn_u.close()
+
       with st.form("create_group_form"):
-        st.markdown("#### Create New Group")
+        st.markdown("#### Create Private Group")
         g_name = st.text_input(
             "Group Name", placeholder="e.g., Robotics Innovators 🤖"
         )
         g_desc = st.text_area(
             "Group Description", placeholder="What is this group about?"
         )
+        selected_members = st.multiselect(
+            "Select Users to Add",
+            options=all_users,
+            placeholder="Choose user IDs to include...",
+        )
+
         if st.form_submit_button("Create Group 🚀", use_container_width=True):
           if g_name.strip():
             conn = get_db_connection()
             if conn:
               cursor = conn.cursor()
               try:
+                # Insert Group
                 cursor.execute(
                     """
                                 INSERT INTO chat_groups (group_name, created_by, description, timestamp)
@@ -1231,8 +1283,28 @@ elif current_tab == "Chat":
                         get_current_ist_time(),
                     ),
                 )
+                # Insert Creator as Admin
+                cursor.execute(
+                    """
+                                INSERT OR IGNORE INTO group_members (group_name, username, role)
+                                VALUES (?, ?, ?)
+                            """,
+                    (g_name.strip(), username, "Admin"),
+                )
+                # Insert Selected Members
+                for member in selected_members:
+                  cursor.execute(
+                      """
+                                    INSERT OR IGNORE INTO group_members (group_name, username, role)
+                                    VALUES (?, ?, ?)
+                                """,
+                      (g_name.strip(), member, "Member"),
+                  )
                 conn.commit()
-                st.success(f"Group '{g_name}' created successfully!")
+                st.success(
+                    f"Private group '{g_name}' created successfully with"
+                    f" {len(selected_members)} initial members!"
+                )
               except sqlite3.IntegrityError:
                 st.error("A group with this name already exists.")
               conn.close()
@@ -1241,22 +1313,34 @@ elif current_tab == "Chat":
             st.warning("Please provide a group name.")
 
       st.markdown(
-          "<hr style='border: 0.5px solid #30363d;'>", unsafe_allow_html=True
+          f"<hr style='border: 0.5px solid {border_color};'>",
+          unsafe_allow_html=True,
       )
-      st.markdown("#### Available Groups")
+      st.markdown("#### Groups You Are In")
 
       conn = get_db_connection()
-      groups = []
+      user_groups = []
       if conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM chat_groups ORDER BY id DESC")
-        groups = cursor.fetchall()
+        cursor.execute(
+            """
+                    SELECT g.* FROM chat_groups g
+                    JOIN group_members m ON g.group_name = m.group_name
+                    WHERE m.username = ?
+                    ORDER BY g.id DESC
+                """,
+            (username,),
+        )
+        user_groups = cursor.fetchall()
         conn.close()
 
-      if not groups:
-        st.info("No active groups found. Create one above to get started!")
+      if not user_groups:
+        st.info(
+            "You are not part of any groups yet. Create one above or ask an"
+            " admin to add you!"
+        )
 
-      for g in groups:
+      for g in user_groups:
         g_dict = dict(g)
         g_title = g_dict["group_name"]
         g_creator = g_dict["created_by"]
@@ -1265,10 +1349,10 @@ elif current_tab == "Chat":
         c_ginfo, c_gjoin = st.columns([4, 1])
         with c_ginfo:
           st.markdown(
-              f"""
-                    <div style="background-color: #161b22; padding: 12px; border-radius: 8px; border: 1px solid #30363d;">
+                    f"""
+                    <div style="background-color: {card_bg}; padding: 12px; border-radius: 8px; border: 1px solid {border_color};">
                         <h4 style="margin: 0; color: #00E676;">{g_title}</h4>
-                        <p style="margin: 4px 0; color: #ccc; font-size: 13px;">{g_description}</p>
+                        <p style="margin: 4px 0; font-size: 13px;">{g_description}</p>
                         <small style="color: #888;">Created by @{g_creator}</small>
                     </div>
                 """,
@@ -1276,13 +1360,28 @@ elif current_tab == "Chat":
           )
         with c_gjoin:
           st.markdown("<br>", unsafe_allow_html=True)
-          if st.button("Join ➔", key=f"join_group_{g_title}"):
+          if st.button("Open ➔", key=f"join_group_{g_title}"):
             st.session_state.active_group_chat = g_title
             st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
     else:
       active_group = st.session_state.active_group_chat
+
+      # Check if user is admin of this group
+      conn_role = get_db_connection()
+      user_role = "Member"
+      if conn_role:
+        cur_r = conn_role.cursor()
+        cur_r.execute(
+            "SELECT role FROM group_members WHERE group_name = ? AND username = ?",
+            (active_group, username),
+        )
+        r_res = cur_r.fetchone()
+        if r_res:
+          user_role = r_res["role"]
+        conn_role.close()
+
       c_gback, c_gtitle = st.columns([1, 5])
       with c_gback:
         if st.button("⬅ Groups"):
@@ -1294,10 +1393,111 @@ elif current_tab == "Chat":
             unsafe_allow_html=True,
         )
 
+      # Admin Management Expander
+      if user_role == "Admin":
+        with st.expander("🛠️ Admin Controls (Manage Members & Admins)"):
+          conn_m = get_db_connection()
+          current_members = []
+          all_system_users = []
+          if conn_m:
+            cur_m = conn_m.cursor()
+            cur_m.execute(
+                "SELECT username, role FROM group_members WHERE group_name ="
+                " ?",
+                (active_group,),
+            )
+            current_members = cur_m.fetchall()
+            cur_m.execute(
+                "SELECT username FROM users WHERE username NOT IN (SELECT username"
+                " FROM group_members WHERE group_name = ?)",
+                (active_group,),
+            )
+            all_system_users = [row["username"] for row in cur_m.fetchall()]
+            conn_m.close()
+
+          st.markdown("##### Current Members")
+          for m_row in current_members:
+            m_uname = m_row["username"]
+            m_role = m_row["role"]
+            col_mu, col_mr, col_maction = st.columns([2, 1, 2])
+            with col_mu:
+              st.markdown(f"**@{m_uname}** ({m_role})")
+            with col_mr:
+              pass
+            with col_maction:
+              if m_uname != username:  # Cannot modify self here
+                c_btn1, c_btn2 = st.columns(2)
+                with c_btn1:
+                  if m_role == "Member":
+                    if st.button("Make Admin", key=f"make_admin_{m_uname}"):
+                      conn_up = get_db_connection()
+                      if conn_up:
+                        conn_up.execute(
+                            "UPDATE group_members SET role = 'Admin' WHERE"
+                            " group_name = ? AND username = ?",
+                            (active_group, m_uname),
+                        )
+                        conn_up.commit()
+                        conn_up.close()
+                      st.success(f"@{m_uname} is now an Admin!")
+                      st.rerun()
+                  else:
+                    if st.button("Demote", key=f"demote_{m_uname}"):
+                      conn_up = get_db_connection()
+                      if conn_up:
+                        conn_up.execute(
+                            "UPDATE group_members SET role = 'Member' WHERE"
+                            " group_name = ? AND username = ?",
+                            (active_group, m_uname),
+                        )
+                        conn_up.commit()
+                        conn_up.close()
+                      st.success(f"@{m_uname} demoted to Member.")
+                      st.rerun()
+                with c_btn2:
+                  if st.button("Remove", key=f"remove_member_{m_uname}"):
+                    conn_rm = get_db_connection()
+                    if conn_rm:
+                      conn_rm.execute(
+                          "DELETE FROM group_members WHERE group_name = ? AND"
+                          " username = ?",
+                          (active_group, m_uname),
+                      )
+                      conn_rm.commit()
+                      conn_rm.close()
+                    st.success(f"Removed @{m_uname} from group.")
+                    st.rerun()
+
+          st.markdown("##### Add New User to Group")
+          with st.form("add_member_form"):
+            user_to_add = st.selectbox(
+                "Select User",
+                options=all_system_users,
+                placeholder="Choose user...",
+            )
+            if st.form_submit_button(
+                "Add Member to Group", use_container_width=True
+            ):
+              if user_to_add:
+                conn_add = get_db_connection()
+                if conn_add:
+                  conn_add.execute(
+                      """
+                                    INSERT OR IGNORE INTO group_members (group_name, username, role)
+                                    VALUES (?, ?, 'Member')
+                                """,
+                      (active_group, user_to_add),
+                  )
+                  conn_add.commit()
+                  conn_add.close()
+                st.success(f"Added @{user_to_add} to group successfully!")
+                st.rerun()
+
       st.markdown(
-          "<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>",
+          f"<hr style='border: 0.5px solid {border_color}; margin: 10px 0;'>",
           unsafe_allow_html=True,
       )
+
 
       @st.fragment(run_every=1.0)
       def render_group_chat_fragment():
@@ -1443,14 +1643,14 @@ elif current_tab == "Profile":
   followers_num, following_num = get_user_stats(username)
   st.markdown(
       f"""
-        <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
-            <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
+        <div style="background-color: {card_bg}; padding: 25px; border-radius: 15px; border: 1px solid {border_color};">
+            <h2 style="margin: 0;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
             <p style="color: #00C853; font-weight: 600; margin: 4px 0; font-size: 14px;">
                 🆔 User ID: {user.get('user_id', 'N/A')} &nbsp;|&nbsp; 
                 🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp; 
                 👥 Followers: {followers_num} &nbsp;|&nbsp; Following: {following_num}
             </p>
-            <p style="color: #ccc; margin: `8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
+            <p style="margin: 8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
         </div>
     """,
       unsafe_allow_html=True,
