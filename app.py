@@ -377,7 +377,7 @@ if "show_edit_profile" not in st.session_state:
   st.session_state.show_edit_profile = False
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME & AUTO-SCROLL ENGINE
+# 2. PREMIUM CUSTOM CSS THEME & AGGRESSIVE AUTO-SCROLL ENGINE
 # ==============================================================================
 st.markdown(
     """
@@ -455,18 +455,20 @@ st.markdown(
 </style>
 
 <script>
-    // Enforce automatic lag-free container snapping for chat feeds
-    function autoScrollChat() {
+    // Bulletproof Auto-Scroll Engine: Forces container to stick to the absolute bottom instantly on every update/tick
+    function forceAutoScroll() {
         const doc = window.parent.document;
         const containers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
         containers.forEach(c => {
-            if (c.scrollHeight > c.clientHeight && c.scrollTop + c.clientHeight < c.scrollHeight - 50) {
-                // If close to bottom or on load, snap down
+            // Check if this container looks like a message feed (has scrollable height)
+            if (c.scrollHeight > 200) {
                 c.scrollTop = c.scrollHeight;
             }
         });
     }
-    setInterval(autoScrollChat, 300);
+    // Run frequently to ensure instant reaction to polling updates
+    setInterval(forceAutoScroll, 150);
+    setTimeout(forceAutoScroll, 300);
 </script>
 """,
     unsafe_allow_html=True,
@@ -822,7 +824,7 @@ elif current_tab == "Reels":
             st.rerun()
 
 # ==============================================================================
-# TAB 3: CHAT & GROUP CHAT SECTION (LAG-FREE FRAGMENT WITH LOGO RENDERING)
+# TAB 3: CHAT & GROUP CHAT SECTION (WITH MESSAGE AVATAR LOGOS AND AUTO-SCROLL)
 # ==============================================================================
 elif current_tab == "Chat":
   chat_mode_col1, chat_mode_col2 = st.columns(2)
@@ -841,6 +843,26 @@ elif current_tab == "Chat":
       "<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>",
       unsafe_allow_html=True,
   )
+
+  # ----------------------------------------------------
+  # HELPER TO FETCH USER PROFILE PIC
+  # ----------------------------------------------------
+  def get_user_avatar_html(uname):
+    conn_u = get_db_connection()
+    u_pic = ""
+    if conn_u:
+      cur_u = conn_u.cursor()
+      cur_u.execute("SELECT profile_pic FROM users WHERE username = ?", (uname,))
+      res = cur_u.fetchone()
+      if res and res["profile_pic"]:
+        u_pic = res["profile_pic"]
+      conn_u.close()
+
+    if u_pic and u_pic.startswith("data:image"):
+      return f"<img src='{u_pic}' style='width: 28px; height: 28px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 6px;'>"
+    else:
+      initial = uname[0].upper() if uname else "U"
+      return f"<span style='display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background-color: #00C853; color: #0e1117; border-radius: 50%; font-weight: bold; font-size: 12px; vertical-align: middle; margin-right: 6px;'>{initial}</span>"
 
   # ----------------------------------------------------
   # SUB-MODE A: DIRECT MESSAGES
@@ -970,7 +992,7 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
-      @st.fragment(run_every=1.5)
+      @st.fragment(run_every=1.0)
       def render_dm_fragment():
         conn = get_db_connection()
         messages = []
@@ -996,12 +1018,16 @@ elif current_tab == "Chat":
             is_sender = m["sender"] == username
             align = "flex-end" if is_sender else "flex-start"
             bg = "#1f6feb" if is_sender else "#21262d"
+            avatar_html = get_user_avatar_html(m["sender"])
 
             st.markdown(
                 f"""
                         <div style="display: flex; justify-content: {align}; margin-bottom: 10px;">
                             <div style="background-color: {bg}; color: #fff; padding: 10px 14px; border-radius: 10px; max-width: 70%; word-break: break-word;">
-                                <small style="color: #aaa; display: block; font-size: 10px;">{m['sender']} • {m.get('timestamp','')}</small>
+                                <div style="margin-bottom: 4px; display: flex; align-items: center;">
+                                    {avatar_html}
+                                    <small style="color: #aaa; font-size: 11px;">{m['sender']} • {m.get('timestamp','')}</small>
+                                </div>
                                 <p style="margin: 4px 0 0 0;">{m['message']}</p>
                             </div>
                         </div>
@@ -1196,7 +1222,7 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
-      @st.fragment(run_every=1.5)
+      @st.fragment(run_every=1.0)
       def render_group_chat_fragment():
         conn = get_db_connection()
         group_msgs = []
@@ -1225,12 +1251,16 @@ elif current_tab == "Chat":
             is_sender = gm["sender"] == username
             align = "flex-end" if is_sender else "flex-start"
             bg = "#1f6feb" if is_sender else "#21262d"
+            avatar_html = get_user_avatar_html(gm["sender"])
 
             st.markdown(
                 f"""
                         <div style="display: flex; justify-content: {align}; margin-bottom: 10px;">
                             <div style="background-color: {bg}; color: #fff; padding: 10px 14px; border-radius: 10px; max-width: 70%; word-break: break-word;">
-                                <small style="color: #00E676; display: block; font-size: 11px; font-weight: bold;">@{gm['sender']} • {gm.get('timestamp','')}</small>
+                                <div style="margin-bottom: 4px; display: flex; align-items: center;">
+                                    {avatar_html}
+                                    <small style="color: #00E676; font-size: 11px; font-weight: bold;">@{gm['sender']} • {gm.get('timestamp','')}</small>
+                                </div>
                                 <p style="margin: 4px 0 0 0;">{gm['message']}</p>
                             </div>
                         </div>
