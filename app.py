@@ -1066,148 +1066,151 @@ elif current_tab == "Chat":
         unsafe_allow_html=True,
     )
 
-    # Theme Styling Dictionary (5 Options)
-    theme_styles = {
-        "Dark Futuristic": {
-            "bg": "rgba(22, 27, 34, 0.7)",
-            "sender_bg": "#1f6feb",
-            "receiver_bg": "#21262d",
-            "text": "#ffffff",
-        },
-        "Emerald Cyber": {
-            "bg": "rgba(13, 27, 20, 0.8)",
-            "sender_bg": "#00C853",
-            "receiver_bg": "#14261c",
-            "text": "#ffffff",
-        },
-        "Neon Purple": {
-            "bg": "rgba(26, 13, 33, 0.8)",
-            "sender_bg": "#9c27b0",
-            "receiver_bg": "#24152a",
-            "text": "#ffffff",
-        },
-        "Sunset Glow": {
-            "bg": "rgba(33, 18, 13, 0.8)",
-            "sender_bg": "#ff5722",
-            "receiver_bg": "#2a1c17",
-            "text": "#ffffff",
-        },
-        "Classic Minimal": {
-            "bg": "rgba(255, 255, 255, 0.05)",
-            "sender_bg": "#3b82f6",
-            "receiver_bg": "#374151",
-            "text": "#ffffff",
-        },
-    }
-    selected_theme = theme_styles.get(
-        st.session_state.chat_theme, theme_styles["Dark Futuristic"]
-    )
 
-    conn = get_db_connection()
-    messages = []
-    if conn:
-      cursor = conn.cursor()
-      cursor.execute(
-          """
-                SELECT * FROM messages 
-                WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
-                ORDER BY id ASC
-            """,
-          (username, peer_name, peer_name, username),
+    # Optimized Live Chat Fragment to prevent full page lag
+    @st.fragment(run_every=2.5)
+    def render_live_chat_box():
+      # Theme Styling Dictionary (5 Options)
+      theme_styles = {
+          "Dark Futuristic": {
+              "bg": "rgba(22, 27, 34, 0.7)",
+              "sender_bg": "#1f6feb",
+              "receiver_bg": "#21262d",
+              "text": "#ffffff",
+          },
+          "Emerald Cyber": {
+              "bg": "rgba(13, 27, 20, 0.8)",
+              "sender_bg": "#00C853",
+              "receiver_bg": "#14261c",
+              "text": "#ffffff",
+          },
+          "Neon Purple": {
+              "bg": "rgba(26, 13, 33, 0.8)",
+              "sender_bg": "#9c27b0",
+              "receiver_bg": "#24152a",
+              "text": "#ffffff",
+          },
+          "Sunset Glow": {
+              "bg": "rgba(33, 18, 13, 0.8)",
+              "sender_bg": "#ff5722",
+              "receiver_bg": "#2a1c17",
+              "text": "#ffffff",
+          },
+          "Classic Minimal": {
+              "bg": "rgba(255, 255, 255, 0.05)",
+              "sender_bg": "#3b82f6",
+              "receiver_bg": "#374151",
+              "text": "#ffffff",
+          },
+      }
+      selected_theme = theme_styles.get(
+          st.session_state.chat_theme, theme_styles["Dark Futuristic"]
       )
-      messages = cursor.fetchall()
-      conn.close()
 
-    chat_container = st.container(height=420)
-    with chat_container:
-      if not messages:
-        st.info(f"No messages yet with @{peer_name}. Say hello!")
-      for msg in messages:
-        m = dict(msg)
-        t_str = m.get("timestamp", "")
-        time_only = t_str.split(" ")[1][:5] if " " in t_str else t_str
-
-        is_sender = m["sender"] == username
-
-        # Handle Profile Icon with automatic default fallback if not set
-        if is_sender:
-          user_pic = user.get("profile_pic", "")
-          if user_pic and user_pic.startswith("data:image"):
-            avatar_html = f"<img src='{user_pic}' style='width: 35px; height: 35px; border-radius: 50%; object-fit: cover;'>"
-          else:
-            avatar_html = f"<div style='background-color: #00C853; color: #0e1117; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;'>{first_letter}</div>"
-
-          # Sender bubble layout (Right side)
-          st.markdown(
-              f"""
-                    <div style="display: flex; justify-content: flex-end; align-items: flex-end; gap: 10px; margin-bottom: 12px;">
-                        <div style="max-width: 70%; text-align: right;">
-                            <div style="background-color: {selected_theme['sender_bg']}; color: {selected_theme['text']}; padding: 10px 14px; border-radius: 12px 12px 0px 12px; display: inline-block; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
-                                <p style="margin: 0; font-size: 14px; word-break: break-word;">{m['message']}</p>
-                            </div>
-                            <span style="display: block; font-size: 10px; color: #8b949e; margin-top: 2px;">{time_only} ✓✓</span>
-                        </div>
-                        {avatar_html}
-                    </div>
-                    """,
-              unsafe_allow_html=True,
-          )
-        else:
-          if peer_pic and peer_pic.startswith("data:image"):
-            peer_avatar_html = f"<img src='{peer_pic}' style='width: 35px; height: 35px; border-radius: 50%; object-fit: cover;'>"
-          else:
-            peer_avatar_html = f"<div style='background-color: #3b82f6; color: #ffffff; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;'>{peer_first_letter}</div>"
-
-          # Receiver bubble layout (Left side)
-          st.markdown(
-              f"""
-                    <div style="display: flex; justify-content: flex-start; align-items: flex-end; gap: 10px; margin-bottom: 12px;">
-                        {peer_avatar_html}
-                        <div style="max-width: 70%; text-align: left;">
-                            <div style="background-color: {selected_theme['receiver_bg']}; color: {selected_theme['text']}; padding: 10px 14px; border-radius: 12px 12px 12px 0px; display: inline-block; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
-                                <p style="margin: 0; font-size: 14px; word-break: break-word;">{m['message']}</p>
-                            </div>
-                            <span style="display: block; font-size: 10px; color: #8b949e; margin-top: 2px;">{time_only}</span>
-                        </div>
-                    </div>
-                    """,
-              unsafe_allow_html=True,
-          )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    with st.form(key="whatsapp_chat_form", clear_on_submit=True):
-      c_txt, c_btn = st.columns([5, 1])
-      with c_txt:
-        msg_input = st.text_input(
-            "Type a message",
-            placeholder=f"Message @{peer_name}...",
-            label_visibility="collapsed",
+      conn = get_db_connection()
+      messages = []
+      if conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                    SELECT * FROM messages 
+                    WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
+                    ORDER BY id ASC
+                """,
+            (username, peer_name, peer_name, username),
         )
-      with c_btn:
-        send_submitted = st.form_submit_button(
-            "Send ➔", use_container_width=True
-        )
+        messages = cursor.fetchall()
+        conn.close()
 
-      if send_submitted and msg_input.strip():
-        conn = get_db_connection()
-        if conn:
-          cursor = conn.cursor()
-          cursor.execute(
-              """
-                        INSERT INTO messages (sender, receiver, message, timestamp)
-                        VALUES (?, ?, ?, ?)
-                    """,
-              (
-                  username,
-                  peer_name,
-                  msg_input.strip(),
-                  get_current_ist_time(),
-              ),
+      chat_container = st.container(height=420)
+      with chat_container:
+        if not messages:
+          st.info(f"No messages yet with @{peer_name}. Say hello!")
+        for msg in messages:
+          m = dict(msg)
+          t_str = m.get("timestamp", "")
+          time_only = t_str.split(" ")[1][:5] if " " in t_str else t_str
+
+          is_sender = m["sender"] == username
+
+          if is_sender:
+            user_pic = user.get("profile_pic", "")
+            if user_pic and user_pic.startswith("data:image"):
+              avatar_html = f"<img src='{user_pic}' style='width: 35px; height: 35px; border-radius: 50%; object-fit: cover;'>"
+            else:
+              avatar_html = f"<div style='background-color: #00C853; color: #0e1117; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;'>{first_letter}</div>"
+
+            st.markdown(
+                f"""
+                        <div style="display: flex; justify-content: flex-end; align-items: flex-end; gap: 10px; margin-bottom: 12px;">
+                            <div style="max-width: 70%; text-align: right;">
+                                <div style="background-color: {selected_theme['sender_bg']}; color: {selected_theme['text']}; padding: 10px 14px; border-radius: 12px 12px 0px 12px; display: inline-block; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+                                    <p style="margin: 0; font-size: 14px; word-break: break-word;">{m['message']}</p>
+                                </div>
+                                <span style="display: block; font-size: 10px; color: #8b949e; margin-top: 2px;">{time_only} ✓✓</span>
+                            </div>
+                            {avatar_html}
+                        </div>
+                        """,
+                unsafe_allow_html=True,
+            )
+          else:
+            if peer_pic and peer_pic.startswith("data:image"):
+              peer_avatar_html = f"<img src='{peer_pic}' style='width: 35px; height: 35px; border-radius: 50%; object-fit: cover;'>"
+            else:
+              peer_avatar_html = f"<div style='background-color: #3b82f6; color: #ffffff; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;'>{peer_first_letter}</div>"
+
+            st.markdown(
+                f"""
+                        <div style="display: flex; justify-content: flex-start; align-items: flex-end; gap: 10px; margin-bottom: 12px;">
+                            {peer_avatar_html}
+                            <div style="max-width: 70%; text-align: left;">
+                                <div style="background-color: {selected_theme['receiver_bg']}; color: {selected_theme['text']}; padding: 10px 14px; border-radius: 12px 12px 12px 0px; display: inline-block; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+                                    <p style="margin: 0; font-size: 14px; word-break: break-word;">{m['message']}</p>
+                                </div>
+                                <span style="display: block; font-size: 10px; color: #8b949e; margin-top: 2px;">{time_only}</span>
+                            </div>
+                        </div>
+                        """,
+                unsafe_allow_html=True,
+            )
+
+      st.markdown("<br>", unsafe_allow_html=True)
+
+      with st.form(key="whatsapp_chat_form", clear_on_submit=True):
+        c_txt, c_btn = st.columns([5, 1])
+        with c_txt:
+          msg_input = st.text_input(
+              "Type a message",
+              placeholder=f"Message @{peer_name}...",
+              label_visibility="collapsed",
           )
-          conn.commit()
-          conn.close()
-          st.rerun()
+        with c_btn:
+          send_submitted = st.form_submit_button(
+              "Send ➔", use_container_width=True
+          )
+
+        if send_submitted and msg_input.strip():
+          conn = get_db_connection()
+          if conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                            INSERT INTO messages (sender, receiver, message, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        """,
+                (
+                    username,
+                    peer_name,
+                    msg_input.strip(),
+                    get_current_ist_time(),
+                ),
+            )
+            conn.commit()
+            conn.close()
+            st.rerun()
+
+    render_live_chat_box()
 
     st.markdown(
         "<p style='text-align: center; color: #8b949e; font-size: 12px;"
