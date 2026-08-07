@@ -98,9 +98,47 @@ def init_db():
                 sender TEXT,
                 receiver TEXT,
                 message TEXT,
+                media_data TEXT,
+                media_type TEXT,
                 timestamp TEXT
             )
         """)
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name TEXT UNIQUE,
+                created_by TEXT,
+                description TEXT,
+                timestamp TEXT
+            )
+        """)
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS group_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name TEXT,
+                sender TEXT,
+                message TEXT,
+                media_data TEXT,
+                media_type TEXT,
+                timestamp TEXT
+            )
+        """)
+
+    # Check and migrate columns for messages & group_messages if needed
+    for table_name in ["messages", "group_messages"]:
+      cursor.execute(f"PRAGMA table_info({table_name})")
+      t_cols = [col["name"] for col in cursor.fetchall()]
+      if "media_data" not in t_cols:
+        try:
+          cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN media_data TEXT")
+        except Exception:
+          pass
+      if "media_type" not in t_cols:
+        try:
+          cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN media_type TEXT")
+        except Exception:
+          pass
+
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
       demo_users = [
@@ -125,28 +163,6 @@ def init_db():
               18,
               "Male",
               "2005-05-15",
-              "Public",
-              "",
-          ),
-          (
-              "alex_dev",
-              "password123",
-              "Alex Rivera",
-              "Building cool Python & AI web apps 💻",
-              19,
-              "Male",
-              "2004-10-10",
-              "Private",
-              "",
-          ),
-          (
-              "noob_coder",
-              "password123",
-              "Noob Coder",
-              "Learning Python step by step 🪀",
-              17,
-              "Female",
-              "2006-12-22",
               "Public",
               "",
           ),
@@ -240,24 +256,6 @@ def update_user_profile(
   error_msg = ""
   if conn:
     cursor = conn.cursor()
-
-    cursor.execute("PRAGMA table_info(users)")
-    columns = [col["name"] for col in cursor.fetchall()]
-    for col in [
-        "gender",
-        "birth_date",
-        "account_type",
-        "profile_pic",
-        "full_name",
-        "bio",
-    ]:
-      if col not in columns:
-        try:
-          cursor.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
-        except Exception:
-          pass
-    conn.commit()
-
     cursor.execute("SELECT * FROM users WHERE username = ?", (old_username,))
     existing_user = cursor.fetchone()
 
@@ -355,11 +353,8 @@ def update_user_profile(
 
         conn.commit()
         success = True
-      except sqlite3.IntegrityError as e:
-        error_msg = str(e)
       except Exception as e:
         error_msg = str(e)
-
     conn.close()
   return success, error_msg
 
@@ -375,6 +370,10 @@ if "nav_option" not in st.session_state:
   st.session_state.nav_option = "Feed"
 if "active_chat_user" not in st.session_state:
   st.session_state.active_chat_user = None
+if "active_group_chat" not in st.session_state:
+  st.session_state.active_group_chat = None
+if "chat_sub_mode" not in st.session_state:
+  st.session_state.chat_sub_mode = "Direct Messages"
 if "show_edit_profile" not in st.session_state:
   st.session_state.show_edit_profile = False
 if "chat_theme" not in st.session_state:
@@ -610,24 +609,28 @@ with header_col2:
   if st.button("🏠 Feed", use_container_width=True):
     st.session_state.nav_option = "Feed"
     st.session_state.active_chat_user = None
+    st.session_state.active_group_chat = None
     st.session_state.show_edit_profile = False
     st.rerun()
 with header_col3:
   if st.button("🎬 Reels", use_container_width=True):
     st.session_state.nav_option = "Reels"
     st.session_state.active_chat_user = None
+    st.session_state.active_group_chat = None
     st.session_state.show_edit_profile = False
     st.rerun()
 with header_col4:
   if st.button("💬 Chat", use_container_width=True):
     st.session_state.nav_option = "Chat"
     st.session_state.active_chat_user = None
+    st.session_state.active_group_chat = None
     st.session_state.show_edit_profile = False
     st.rerun()
 with header_col5:
   if st.button("👤 Profile", use_container_width=True):
     st.session_state.nav_option = "Profile"
     st.session_state.active_chat_user = None
+    st.session_state.active_group_chat = None
     st.session_state.show_edit_profile = False
     st.rerun()
 
@@ -686,9 +689,6 @@ if current_tab == "Feed":
               "Share code snippets, robotics updates, or learning notes..."
           ),
       )
-      uploaded_file = st.file_uploader(
-          "Upload Image or Video (Optional)", type=["jpg", "png", "mp4"]
-      )
       if st.form_submit_button("Publish Post 🚀", use_container_width=True):
         if caption.strip():
           conn = get_db_connection()
@@ -729,9 +729,7 @@ if current_tab == "Feed":
             and p_dict["username"] != username
         ):
           continue
-
         formatted_caption = p_dict["caption"].replace("\n", "<br>")
-
         st.markdown(
             f"""
                     <div style="background-color: #161b22; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #30363d;">
@@ -750,14 +748,7 @@ if current_tab == "Feed":
         """
             <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d;">
                 <h3 style="color: white; margin-top: 0;">🤖 Saraah Robotics Hub</h3>
-                <p style="color: #ccc; font-size: 14px;">Welcome to <b>Noob Learning</b>! Connect with peers, share robotics prototypes, upload reels, and exchange live messages with other learners.</p>
-                <hr style="border: 0.5px solid #30363d;">
-                <b style="color: white;">Platform Features:</b>
-                <ul style="color: #aaa; font-size: 13px; padding-left: 20px; line-height: 1.6;">
-                    <li>🎬 <b>Reels Hub:</b> Watch and post bite-sized learning reels.</li>
-                    <li>💬 <b>Live Chat:</b> Real-time messaging with auto-sync.</li>
-                    <li>👤 <b>Custom Profiles:</b> Public/Private badges & bios.</li>
-                </ul>
+                <p style="color: #ccc; font-size: 14px;">Welcome to <b>Noob Learning</b>! Connect with peers, share robotics updates, upload reels, and exchange live text, images, videos, and documents seamlessly.</p>
             </div>
         """,
         unsafe_allow_html=True,
@@ -768,12 +759,6 @@ if current_tab == "Feed":
 # ==============================================================================
 elif current_tab == "Reels":
   st.markdown("### 🎬 Reels Hub")
-  st.markdown(
-      "<p style='color: #888;'>Explore short educational videos and robotics"
-      " clips created by the community.</p>",
-      unsafe_allow_html=True,
-  )
-
   sub_tab_watch, sub_tab_create = st.tabs(["🎥 Watch Reels", "➕ Create Reel"])
 
   with sub_tab_watch:
@@ -789,29 +774,19 @@ elif current_tab == "Reels":
             """)
       reels = cursor.fetchall()
       conn.close()
-
       filtered_reels = [
           dict(r)
           for r in reels
           if r["account_type"] == "Public" or r["username"] == username
       ]
-
       if not filtered_reels:
-        st.info("No reels available yet or accounts are private.")
+        st.info("No reels available yet.")
       for r_dict in filtered_reels:
         formatted_reel_caption = r_dict["caption"].replace("\n", "<br>")
         st.markdown(
             f"""
                     <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 20px;">
-                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                            <div style="background-color: #ff4b4b; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">
-                                {r_dict['username'][0].upper()}
-                            </div>
-                            <div>
-                                <strong style="color: white;">@{r_dict['username']}</strong> <span style="font-size:11px; color:#888;">({r_dict['account_type']})</span><br>
-                                <span style="color: #888; font-size: 11px;">{r_dict['timestamp']}</span>
-                            </div>
-                        </div>
+                        <strong style="color: white;">@{r_dict['username']}</strong>
                         <p style="font-size: 15px; color: #eee; margin-top: 10px;">{formatted_reel_caption}</p>
                     </div>
                 """,
@@ -821,16 +796,7 @@ elif current_tab == "Reels":
   with sub_tab_create:
     st.markdown("### Upload a New Reel")
     with st.form("create_reel_form"):
-      reel_caption = st.text_area(
-          "Reel Caption & Hashtags",
-          placeholder=(
-              "Explain your robotics build or python trick... #Robotics"
-              " #Python"
-          ),
-      )
-      reel_file = st.file_uploader(
-          "Upload Video File (MP4, MOV)", type=["mp4", "mov"]
-      )
+      reel_caption = st.text_area("Reel Caption & Hashtags")
       if st.form_submit_button("Publish Reel 🎬", use_container_width=True):
         if reel_caption.strip():
           conn = get_db_connection()
@@ -847,394 +813,477 @@ elif current_tab == "Reels":
             conn.close()
             st.success("Reel published successfully!")
             st.rerun()
-        else:
-          st.warning("Please add a caption for your reel.")
 
 # ==============================================================================
-# TAB 3: CHAT & USER SEARCH SECTION
+# TAB 3: CHAT & GROUP CHAT SECTION (LAG-FREE FRAGMENT)
 # ==============================================================================
 elif current_tab == "Chat":
-  conn = get_db_connection()
-  peers = []
-  if conn:
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE username != ?", (username,))
-    peers = cursor.fetchall()
-    conn.close()
+  # Top sub-navigation between Direct Messages and Group Chats
+  chat_mode_col1, chat_mode_col2 = st.columns(2)
+  with chat_mode_col1:
+    if st.button("💬 Direct Messages", use_container_width=True):
+      st.session_state.chat_sub_mode = "Direct Messages"
+      st.session_state.active_group_chat = None
+      st.rerun()
+  with chat_mode_col2:
+    if st.button("👥 Group Chats", use_container_width=True):
+      st.session_state.chat_sub_mode = "Group Chats"
+      st.session_state.active_chat_user = None
+      st.rerun()
 
-  if st.session_state.active_chat_user is None:
-    st.markdown("### 💬 Direct Messages & User Search")
-    st.markdown(
-        "<p style='color: #b0b8c1; font-size: 14px;'>Search users by User ID or"
-        " username, follow peers, and chat instantly.</p>",
-        unsafe_allow_html=True,
-    )
+  st.markdown(
+      "<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>",
+      unsafe_allow_html=True,
+  )
 
-    search_query = st.text_input(
-        "🔍 Search User ID / Username",
-        placeholder="Type a username to search...",
-    ).strip().lower()
+  # ----------------------------------------------------
+  # SUB-MODE A: DIRECT MESSAGES
+  # ----------------------------------------------------
+  if st.session_state.chat_sub_mode == "Direct Messages":
+    conn = get_db_connection()
+    peers = []
+    if conn:
+      cursor = conn.cursor()
+      cursor.execute("SELECT * FROM users WHERE username != ?", (username,))
+      peers = cursor.fetchall()
+      conn.close()
 
-    st.markdown(
-        "<hr style='border: 0.5px solid #30363d;'>", unsafe_allow_html=True
-    )
+    if st.session_state.active_chat_user is None:
+      st.markdown("### 💬 Direct Messages & User Search")
+      search_query = st.text_input(
+          "🔍 Search User ID / Username",
+          placeholder="Type a username to search...",
+      ).strip().lower()
 
-    filtered_peers = []
-    for p in peers:
-      p_dict = dict(p)
-      uname = p_dict.get("username") or ""
-      fname = p_dict.get("full_name") or ""
-      if (
-          not search_query
-          or search_query in uname.lower()
-          or search_query in fname.lower()
-      ):
-        filtered_peers.append(p_dict)
+      filtered_peers = [
+          dict(p)
+          for p in peers
+          if not search_query
+          or search_query in p["username"].lower()
+          or search_query in p.get("full_name", "").lower()
+      ]
 
-    if search_query:
-      st.markdown(
-          f"**Search Results for '{search_query}' ({len(filtered_peers)}"
-          " found):**"
-      )
-    else:
-      st.markdown("**🕒 Recent Community Users:**")
+      for p_dict in filtered_peers:
+        peer_uname = p_dict["username"]
+        display_name = p_dict.get("full_name") or peer_uname
 
-    if not filtered_peers:
-      st.info("No users found matching your search.")
-
-    for p_dict in filtered_peers:
-      peer_uname = p_dict["username"]
-      avatar_char = peer_uname[0].upper()
-      display_name = p_dict.get("full_name") or peer_uname
-      profile_pic = p_dict.get("profile_pic")
-      acc_type = p_dict.get("account_type", "Public")
-
-      conn = get_db_connection()
-      is_following = False
-      if conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT 1 FROM follows WHERE follower = ? AND following = ?",
-            (username, peer_uname),
-        )
-        if cursor.fetchone():
-          is_following = True
-        conn.close()
-
-      c_info, c_follow, c_chat = st.columns([4, 1.2, 1])
-      with c_info:
-        if profile_pic and profile_pic.startswith("data:image"):
-          avatar_html = (
-              f"<img src='{profile_pic}' style='width: 42px; height: 42px;"
-              " border-radius: 50%; object-fit: cover;'>"
+        c_info, c_chat = st.columns([5, 1])
+        with c_info:
+          st.markdown(
+              f"**{display_name}** <span style='color:#888;'>(@{peer_uname})"
+              "</span>",
+              unsafe_allow_html=True,
           )
-        else:
-          avatar_html = (
-              f"<div style='background-color: #00C853; color: #0e1117; width:"
-              f" 42px; height: 42px; border-radius: 50%; display: flex;"
-              f" align-items: center; justify-content: center; font-weight:"
-              f" bold; font-size: 18px;'>{avatar_char}</div>"
-          )
-
+        with c_chat:
+          if st.button("Message 💬", key=f"dm_btn_{peer_uname}"):
+            st.session_state.active_chat_user = peer_uname
+            st.rerun()
         st.markdown(
-            f"""
-                <div style="display: flex; align-items: flex-start; gap: 15px; padding: 8px 0;">
-                    {avatar_html}
-                    <div>
-                        <span style="color: white; font-weight: bold; font-size: 15px;">{display_name}</span> 
-                        <span style="color: #b0b8c1; font-size: 13px;">(@{peer_uname})</span>
-                        <span style="background: #21262d; color: #888; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 5px;">{acc_type}</span>
-                        <p style="color: #aaa; font-size: 13px; margin: 4px 0 0 0;">{p_dict.get('bio') or 'No bio added.'}</p>
-                    </div>
-                </div>
-                """,
+            "<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>",
             unsafe_allow_html=True,
         )
 
-      with c_follow:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if is_following:
-          if st.button("Unfollow", key=f"unfollow_btn_{peer_uname}"):
-            conn = get_db_connection()
-            if conn:
-              cursor = conn.cursor()
-              cursor.execute(
-                  "DELETE FROM follows WHERE follower = ? AND following = ?",
-                  (username, peer_uname),
-              )
-              conn.commit()
-              conn.close()
-              st.rerun()
-        else:
-          if st.button("Follow", key=f"follow_btn_{peer_uname}"):
-            conn = get_db_connection()
-            if conn:
-              cursor = conn.cursor()
-              cursor.execute(
-                  "INSERT OR IGNORE INTO follows (follower, following) VALUES"
-                  " (?, ?)",
-                  (username, peer_uname),
-              )
-              conn.commit()
-              conn.close()
-              st.rerun()
-
-      with c_chat:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Message 💬", key=f"search_chat_btn_{peer_uname}"):
-          st.session_state.active_chat_user = peer_uname
+    else:
+      peer_name = st.session_state.active_chat_user
+      c_back, c_title, c_del = st.columns([1, 4, 1])
+      with c_back:
+        if st.button("⬅ Back"):
+          st.session_state.active_chat_user = None
           st.rerun()
-
-      st.markdown(
-          "<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>",
-          unsafe_allow_html=True,
-      )
-
-  else:
-    peer_name = st.session_state.active_chat_user
-
-    # Fetch peer user details for profile icon
-    conn = get_db_connection()
-    peer_data = {}
-    if conn:
-      cursor = conn.cursor()
-      cursor.execute("SELECT * FROM users WHERE username = ?", (peer_name,))
-      p_row = cursor.fetchone()
-      if p_row:
-        peer_data = dict(p_row)
-      conn.close()
-
-    peer_pic = peer_data.get("profile_pic", "")
-    peer_first_letter = peer_name[0].upper()
-
-    # Chat Header Controls: Back, Title, Theme Selector, Delete Chat, Refresh
-    c_back, c_title, c_theme, c_del, c_refresh = st.columns(
-        [0.8, 2.2, 1.8, 1.2, 1]
-    )
-    with c_back:
-      if st.button("⬅ Back"):
-        st.session_state.active_chat_user = None
-        st.rerun()
-    with c_title:
-      st.markdown(
-          f"<h3 style='margin: 0; color: #fff;'>💬 @{peer_name}</h3>",
-          unsafe_allow_html=True,
-      )
-    with c_theme:
-      themes_list = [
-          "Dark Futuristic",
-          "Emerald Cyber",
-          "Neon Purple",
-          "Sunset Glow",
-          "Classic Minimal",
-      ]
-      current_theme_selection = st.selectbox(
-          "Theme",
-          themes_list,
-          index=(
-              themes_list.index(st.session_state.chat_theme)
-              if st.session_state.chat_theme in themes_list
-              else 0
-          ),
-          label_visibility="collapsed",
-      )
-      if current_theme_selection != st.session_state.chat_theme:
-        st.session_state.chat_theme = current_theme_selection
-        st.rerun()
-    with c_del:
-      if st.button("🗑️ Delete"):
-        conn = get_db_connection()
-        if conn:
-          cursor = conn.cursor()
-          cursor.execute(
-              """
-                        DELETE FROM messages 
-                        WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
-                    """,
-              (username, peer_name, peer_name, username),
-          )
-          conn.commit()
-          conn.close()
-          st.success("Chat deleted!")
-          st.rerun()
-    with c_refresh:
-      if st.button("🔄 Refresh"):
-        st.rerun()
-
-    st.markdown(
-        "<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>",
-        unsafe_allow_html=True,
-    )
-
-
-    # Optimized Live Chat Fragment to prevent full page lag
-    @st.fragment(run_every=2.5)
-    def render_live_chat_box():
-      # Theme Styling Dictionary (5 Options)
-      theme_styles = {
-          "Dark Futuristic": {
-              "bg": "rgba(22, 27, 34, 0.7)",
-              "sender_bg": "#1f6feb",
-              "receiver_bg": "#21262d",
-              "text": "#ffffff",
-          },
-          "Emerald Cyber": {
-              "bg": "rgba(13, 27, 20, 0.8)",
-              "sender_bg": "#00C853",
-              "receiver_bg": "#14261c",
-              "text": "#ffffff",
-          },
-          "Neon Purple": {
-              "bg": "rgba(26, 13, 33, 0.8)",
-              "sender_bg": "#9c27b0",
-              "receiver_bg": "#24152a",
-              "text": "#ffffff",
-          },
-          "Sunset Glow": {
-              "bg": "rgba(33, 18, 13, 0.8)",
-              "sender_bg": "#ff5722",
-              "receiver_bg": "#2a1c17",
-              "text": "#ffffff",
-          },
-          "Classic Minimal": {
-              "bg": "rgba(255, 255, 255, 0.05)",
-              "sender_bg": "#3b82f6",
-              "receiver_bg": "#374151",
-              "text": "#ffffff",
-          },
-      }
-      selected_theme = theme_styles.get(
-          st.session_state.chat_theme, theme_styles["Dark Futuristic"]
-      )
-
-      conn = get_db_connection()
-      messages = []
-      if conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-                    SELECT * FROM messages 
-                    WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
-                    ORDER BY id ASC
-                """,
-            (username, peer_name, peer_name, username),
+      with c_title:
+        st.markdown(
+            f"<h3 style='margin: 0; color: #fff;'>💬 @{peer_name}</h3>",
+            unsafe_allow_html=True,
         )
-        messages = cursor.fetchall()
-        conn.close()
-
-      chat_container = st.container(height=420)
-      with chat_container:
-        if not messages:
-          st.info(f"No messages yet with @{peer_name}. Say hello!")
-        for msg in messages:
-          m = dict(msg)
-          t_str = m.get("timestamp", "")
-          time_only = t_str.split(" ")[1][:5] if " " in t_str else t_str
-
-          is_sender = m["sender"] == username
-
-          if is_sender:
-            user_pic = user.get("profile_pic", "")
-            if user_pic and user_pic.startswith("data:image"):
-              avatar_html = f"<img src='{user_pic}' style='width: 35px; height: 35px; border-radius: 50%; object-fit: cover;'>"
-            else:
-              avatar_html = f"<div style='background-color: #00C853; color: #0e1117; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;'>{first_letter}</div>"
-
-            st.markdown(
-                f"""
-                        <div style="display: flex; justify-content: flex-end; align-items: flex-end; gap: 10px; margin-bottom: 12px;">
-                            <div style="max-width: 70%; text-align: right;">
-                                <div style="background-color: {selected_theme['sender_bg']}; color: {selected_theme['text']}; padding: 10px 14px; border-radius: 12px 12px 0px 12px; display: inline-block; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
-                                    <p style="margin: 0; font-size: 14px; word-break: break-word;">{m['message']}</p>
-                                </div>
-                                <span style="display: block; font-size: 10px; color: #8b949e; margin-top: 2px;">{time_only} ✓✓</span>
-                            </div>
-                            {avatar_html}
-                        </div>
-                        """,
-                unsafe_allow_html=True,
-            )
-          else:
-            if peer_pic and peer_pic.startswith("data:image"):
-              peer_avatar_html = f"<img src='{peer_pic}' style='width: 35px; height: 35px; border-radius: 50%; object-fit: cover;'>"
-            else:
-              peer_avatar_html = f"<div style='background-color: #3b82f6; color: #ffffff; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;'>{peer_first_letter}</div>"
-
-            st.markdown(
-                f"""
-                        <div style="display: flex; justify-content: flex-start; align-items: flex-end; gap: 10px; margin-bottom: 12px;">
-                            {peer_avatar_html}
-                            <div style="max-width: 70%; text-align: left;">
-                                <div style="background-color: {selected_theme['receiver_bg']}; color: {selected_theme['text']}; padding: 10px 14px; border-radius: 12px 12px 12px 0px; display: inline-block; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
-                                    <p style="margin: 0; font-size: 14px; word-break: break-word;">{m['message']}</p>
-                                </div>
-                                <span style="display: block; font-size: 10px; color: #8b949e; margin-top: 2px;">{time_only}</span>
-                            </div>
-                        </div>
-                        """,
-                unsafe_allow_html=True,
-            )
-
-      st.markdown("<br>", unsafe_allow_html=True)
-
-      with st.form(key="whatsapp_chat_form", clear_on_submit=True):
-        c_txt, c_btn = st.columns([5, 1])
-        with c_txt:
-          msg_input = st.text_input(
-              "Type a message",
-              placeholder=f"Message @{peer_name}...",
-              label_visibility="collapsed",
-          )
-        with c_btn:
-          send_submitted = st.form_submit_button(
-              "Send ➔", use_container_width=True
-          )
-
-        if send_submitted and msg_input.strip():
+      with c_del:
+        if st.button("🗑️ Delete"):
           conn = get_db_connection()
           if conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                            INSERT INTO messages (sender, receiver, message, timestamp)
-                            VALUES (?, ?, ?, ?)
+                            DELETE FROM messages 
+                            WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
                         """,
-                (
-                    username,
-                    peer_name,
-                    msg_input.strip(),
-                    get_current_ist_time(),
-                ),
+                (username, peer_name, peer_name, username),
             )
             conn.commit()
             conn.close()
+            st.success("Chat deleted!")
             st.rerun()
 
-    render_live_chat_box()
+      st.markdown(
+          "<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>",
+          unsafe_allow_html=True,
+      )
 
-    st.markdown(
-        "<p style='text-align: center; color: #8b949e; font-size: 12px;"
-        " margin-top: 5px;'>🔒 End-to-end encrypted</p>",
-        unsafe_allow_html=True,
-    )
+      # Optimized Lag-Free Fragment for DM Chat
+      @st.fragment(run_every=2.5)
+      def render_dm_fragment():
+        conn = get_db_connection()
+        messages = []
+        if conn:
+          cursor = conn.cursor()
+          cursor.execute(
+              """
+                        SELECT * FROM messages 
+                        WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
+                        ORDER BY id ASC
+                    """,
+              (username, peer_name, peer_name, username),
+          )
+          messages = cursor.fetchall()
+          conn.close()
+
+        chat_container = st.container(height=400)
+        with chat_container:
+          if not messages:
+            st.info(f"No messages yet with @{peer_name}. Say hello!")
+          for msg in messages:
+            m = dict(msg)
+            is_sender = m["sender"] == username
+            align = "flex-end" if is_sender else "flex-start"
+            bg = "#1f6feb" if is_sender else "#21262d"
+
+            st.markdown(
+                f"""
+                        <div style="display: flex; justify-content: {align}; margin-bottom: 10px;">
+                            <div style="background-color: {bg}; color: #fff; padding: 10px 14px; border-radius: 10px; max-width: 70%; word-break: break-word;">
+                                <small style="color: #aaa; display: block; font-size: 10px;">{m['sender']} • {m.get('timestamp','')}</small>
+                                <p style="margin: 4px 0 0 0;">{m['message']}</p>
+                            </div>
+                        </div>
+                    """,
+                unsafe_allow_html=True,
+            )
+            # Render attached media if present
+            if m.get("media_data"):
+              if m.get("media_type") == "image":
+                st.markdown(
+                    f"<div style='display: flex; justify-content:"
+                    f" {align};'><img src='{m['media_data']}'"
+                    " style='max-width: 250px; border-radius: 8px; margin-bottom:"
+                    " 10px;'></div>",
+                    unsafe_allow_html=True,
+                )
+              elif m.get("media_type") == "video":
+                st.markdown(
+                    f"<div style='display: flex; justify-content:"
+                    f" {align};'><video controls src='{m['media_data']}'"
+                    " style='max-width: 250px; border-radius: 8px; margin-bottom:"
+                    " 10px;'></video></div>",
+                    unsafe_allow_html=True,
+                )
+              elif m.get("media_type") == "document":
+                st.markdown(
+                    f"<div style='display: flex; justify-content:"
+                    f" {align};'><a href='{m['media_data']}' download='file'"
+                    " target='_blank'>📥 Download Attached Document</a></div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Message Input Form with Multimedia & Emojis
+        with st.form(key="dm_send_form", clear_on_submit=True):
+          c_input, c_file, c_btn = st.columns([3, 2, 1])
+          with c_input:
+            msg_text = st.text_input(
+                "Message",
+                placeholder="Type text or use emojis 😊🚀...",
+                label_visibility="collapsed",
+            )
+          with c_file:
+            attached_file = st.file_uploader(
+                "Media",
+                type=["png", "jpg", "jpeg", "mp4", "mov", "pdf", "txt"],
+                label_visibility="collapsed",
+            )
+          with c_btn:
+            send_pressed = st.form_submit_button("Send ➔")
+
+          if send_pressed and (msg_text.strip() or attached_file):
+            encoded_media = None
+            media_type = None
+            if attached_file:
+              bytes_data = attached_file.getvalue()
+              b64_str = base64.b64encode(bytes_data).decode()
+              ftype = attached_file.type.split("/")[0]
+              if ftype == "image":
+                media_type = "image"
+                encoded_media = f"data:image/{attached_file.type.split('/')[-1]};base64,{b64_str}"
+              elif ftype == "video":
+                media_type = "video"
+                encoded_media = f"data:video/{attached_file.type.split('/')[-1]};base64,{b64_str}"
+              else:
+                media_type = "document"
+                encoded_media = f"data:application/octet-stream;base64,{b64_str}"
+
+            conn = get_db_connection()
+            if conn:
+              cursor = conn.cursor()
+              cursor.execute(
+                  """
+                            INSERT INTO messages (sender, receiver, message, media_data, media_type, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                  (
+                      username,
+                      peer_name,
+                      msg_text.strip(),
+                      encoded_media,
+                      media_type,
+                      get_current_ist_time(),
+                  ),
+              )
+              conn.commit()
+              conn.close()
+              st.rerun()
+
+      render_dm_fragment()
+
+  # ----------------------------------------------------
+  # SUB-MODE B: GROUP CHATS
+  # ----------------------------------------------------
+  else:
+    if st.session_state.active_group_chat is None:
+      st.markdown("### 👥 Community Group Chats")
+      st.markdown(
+          "<p style='color: #aaa;'>Create your own study or robotics group or"
+          " join existing ones to chat live with multiple users!</p>",
+          unsafe_allow_html=True,
+      )
+
+      # Create Group Form
+      with st.form("create_group_form"):
+        st.markdown("#### Create New Group")
+        g_name = st.text_input(
+            "Group Name", placeholder="e.g., Robotics Innovators 🤖"
+        )
+        g_desc = st.text_area(
+            "Group Description", placeholder="What is this group about?"
+        )
+        if st.form_submit_button("Create Group 🚀", use_container_width=True):
+          if g_name.strip():
+            conn = get_db_connection()
+            if conn:
+              cursor = conn.cursor()
+              try:
+                cursor.execute(
+                    """
+                                INSERT INTO chat_groups (group_name, created_by, description, timestamp)
+                                VALUES (?, ?, ?, ?)
+                            """,
+                    (
+                        g_name.strip(),
+                        username,
+                        g_desc.strip(),
+                        get_current_ist_time(),
+                    ),
+                )
+                conn.commit()
+                st.success(f"Group '{g_name}' created successfully!")
+              except sqlite3.IntegrityError:
+                st.error("A group with this name already exists.")
+              conn.close()
+              st.rerun()
+          else:
+            st.warning("Please provide a group name.")
+
+      st.markdown(
+          "<hr style='border: 0.5px solid #30363d;'>", unsafe_allow_html=True
+      )
+      st.markdown("#### Available Groups")
+
+      conn = get_db_connection()
+      groups = []
+      if conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM chat_groups ORDER BY id DESC"
+        )  # Fixed source query
+        groups = cursor.fetchall()
+        conn.close()
+
+      if not groups:
+        st.info(
+            "No active groups found. Create one above to get started!"
+        )  # Fixed source query
+
+      for g in groups:
+        g_dict = dict(g)
+        g_title = g_dict["group_name"]
+        g_creator = g_dict["created_by"]
+        g_description = g_dict["description"]
+
+        c_ginfo, c_gjoin = st.columns([4, 1])
+        with c_ginfo:
+          st.markdown(
+              f"""
+                    <div style="background-color: #161b22; padding: 12px; border-radius: 8px; border: 1px solid #30363d;">
+                        <h4 style="margin: 0; color: #00E676;">{g_title}</h4>
+                        <p style="margin: 4px 0; color: #ccc; font-size: 13px;">{g_description}</p>
+                        <small style="color: #888;">Created by @{g_creator}</small>
+                    </div>
+                """,
+              unsafe_allow_html=True,
+          )
+        with c_gjoin:
+          st.markdown("<br>", unsafe_allow_html=True)
+          if st.button("Join Group ➔", key=f"join_group_{g_title}"):
+            st.session_state.active_group_chat = g_title
+            st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
+
+    else:
+      active_group = st.session_state.active_group_chat
+      c_gback, c_gtitle = st.columns([1, 5])
+      with c_gback:
+        if st.button("⬅ Groups"):
+          st.session_state.active_group_chat = None
+          st.rerun()
+      with c_gtitle:
+        st.markdown(
+            f"<h3 style='margin: 0; color: #00E676;'>👥 Group: {active_group}</h3>",
+            unsafe_allow_html=True,
+        )
+
+      st.markdown(
+          "<hr style='border: 0.5px solid #30363d; margin: 10px 0;'>",
+          unsafe_allow_html=True,
+      )
+
+      # Optimized Lag-Free Fragment for Group Chat
+      @st.fragment(run_every=2.5)
+      def render_group_chat_fragment():
+        conn = get_db_connection()
+        group_msgs = []
+        if conn:
+          cursor = conn.cursor()
+          cursor.execute(
+              """
+                        SELECT * FROM group_messages 
+                        WHERE group_name = ?
+                        ORDER BY id ASC
+                    """,
+              (active_group,),
+          )
+          group_msgs = cursor.fetchall()
+          conn.close()
+
+        group_container = st.container(height=400)
+        with group_container:
+          if not group_msgs:
+            st.info(
+                f"Welcome to {active_group}! Be the first to send a message or"
+                " media file."
+            )
+          for g_msg in group_msgs:
+            gm = dict(g_msg)
+            is_sender = gm["sender"] == username
+            align = "flex-end" if is_sender else "flex-start"
+            bg = "#1f6feb" if is_sender else "#21262d"
+
+            st.markdown(
+                f"""
+                        <div style="display: flex; justify-content: {align}; margin-bottom: 10px;">
+                            <div style="background-color: {bg}; color: #fff; padding: 10px 14px; border-radius: 10px; max-width: 70%; word-break: break-word;">
+                                <small style="color: #00E676; display: block; font-size: 11px; font-weight: bold;">@{gm['sender']} • {gm.get('timestamp','')}</small>
+                                <p style="margin: 4px 0 0 0;">{gm['message']}</p>
+                            </div>
+                        </div>
+                    """,
+                unsafe_allow_html=True,
+            )
+            # Render multimedia attachment if any
+            if gm.get("media_data"):
+              if gm.get("media_type") == "image":
+                st.markdown(
+                    f"<div style='display: flex; justify-content:"
+                    f" {align};'><img src='{gm['media_data']}'"
+                    " style='max-width: 250px; border-radius: 8px; margin-bottom:"
+                    " 10px;'></div>",
+                    unsafe_allow_html=True,
+                )
+              elif gm.get("media_type") == "video":
+                st.markdown(
+                    f"<div style='display: flex; justify-content:"
+                    f" {align};'><video controls src='{gm['media_data']}'"
+                    " style='max-width: 250px; border-radius: 8px; margin-bottom:"
+                    " 10px;'></video></div>",
+                    unsafe_allow_html=True,
+                )
+              elif gm.get("media_type") == "document":
+                st.markdown(
+                    f"<div style='display: flex; justify-content:"
+                    f" {align};'><a href='{gm['media_data']}' download='file'"
+                    " target='_blank'>📥 Download Attached Document</a></div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Group Message Input Form
+        with st.form(key="group_send_form", clear_on_submit=True):
+          gc_input, gc_file, gc_btn = st.columns([3, 2, 1])
+          with gc_input:
+            g_msg_text = st.text_input(
+                "Group Message",
+                placeholder="Type message, emojis 😊🚀...",
+                label_visibility="collapsed",
+            )
+          with gc_file:
+            g_attached_file = st.file_uploader(
+                "Group Media",
+                type=["png", "jpg", "jpeg", "mp4", "mov", "pdf", "txt"],
+                label_visibility="collapsed",
+            )
+          with gc_btn:
+            g_send_pressed = st.form_submit_button("Send ➔")
+
+          if g_send_pressed and (g_msg_text.strip() or g_attached_file):
+            g_encoded_media = None
+            g_media_type = None
+            if g_attached_file:
+              g_bytes = g_attached_file.getvalue()
+              g_b64 = base64.b64encode(g_bytes).decode()
+              g_ftype = g_attached_file.type.split("/")[0]
+              if g_ftype == "image":
+                g_media_type = "image"
+                g_encoded_media = f"data:image/{g_attached_file.type.split('/')[-1]};base64,{g_b64}"
+              elif g_ftype == "video":
+                g_media_type = "video"
+                g_encoded_media = f"data:video/{g_attached_file.type.split('/')[-1]};base64,{g_b64}"
+              else:
+                g_media_type = "document"
+                g_encoded_media = f"data:application/octet-stream;base64,{g_b64}"
+
+            conn = get_db_connection()
+            if conn:
+              cursor = conn.cursor()
+              cursor.execute(
+                  """
+                            INSERT INTO group_messages (group_name, sender, message, media_data, media_type, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                  (
+                      active_group,
+                      username,
+                      g_msg_text.strip(),
+                      g_encoded_media,
+                      g_media_type,
+                      get_current_ist_time(),
+                  ),
+              )
+              conn.commit()
+              conn.close()
+              st.rerun()
+
+      render_group_chat_fragment()
 
 # ==============================================================================
-# TAB 4: PROFILE SECTION (WITH EDIT & DELETE ACCOUNT FEATURE)
+# TAB 4: PROFILE SECTION
 # ==============================================================================
 elif current_tab == "Profile":
   conn = get_db_connection()
   if conn:
     cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(users)")
-    columns = [col["name"] for col in cursor.fetchall()]
-    for col in ["gender", "birth_date", "account_type", "profile_pic"]:
-      if col not in columns:
-        try:
-          cursor.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
-        except Exception:
-          pass
-    conn.commit()
-
     cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
     row = cursor.fetchone()
     if row:
@@ -1243,222 +1292,55 @@ elif current_tab == "Profile":
     conn.close()
 
   followers_num, following_num = get_user_stats(username)
-
-  current_pic_data = user.get("profile_pic")
-  if current_pic_data and current_pic_data.startswith("data:image"):
-    avatar_display_html = (
-        f"<img src='{current_pic_data}' style='width: 70px; height: 70px;"
-        " border-radius: 50%; object-fit: cover;'>"
-    )
-  else:
-    avatar_display_html = (
-        f"<div style='background-color: #00C853; color: #0e1117; width: 70px;"
-        f" height: 70px; border-radius: 50%; display: flex; align-items:"
-        f" center; justify-content: center; font-weight: bold; font-size:"
-        f" 28px;'>{first_letter}</div>"
-    )
-
   st.markdown(
-      """
+      f"""
         <div style="background-color: #161b22; padding: 25px; border-radius: 15px; border: 1px solid #30363d;">
+            <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
+            <p style="color: #00C853; font-weight: 600; margin: 4px 0; font-size: 14px;">
+                🆔 User ID: {user.get('user_id', 'N/A')} &nbsp;|&nbsp; 
+                🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp; 
+                👥 Followers: {followers_num} &nbsp;|&nbsp; Following: {following_num}
+            </p>
+            <p style="color: #ccc; margin: 8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
+        </div>
     """,
       unsafe_allow_html=True,
   )
 
-  card_col_info, card_col_stats, card_col_settings = st.columns([5.5, 2.2, 1])
-
-  with card_col_info:
-    st.markdown(
-        f"""
-            <div style="display: flex; align-items: center; gap: 20px;">
-                {avatar_display_html}
-                <div>
-                    <h2 style="margin: 0; color: white;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
-                    <p style="color: #00C853; font-weight: 600; margin: 4px 0; font-size: 14px;">
-                        🆔 User ID: {user.get('user_id', 'N/A')} &nbsp;|&nbsp; 
-                        🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp; 
-                        ⚧ Gender: {user.get('gender', 'N/A')} &nbsp;|&nbsp; 
-                        📅 DOB: {user.get('birth_date', 'N/A')}
-                    </p>
-                    <p style="color: #ccc; margin: 8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
-                </div>
-            </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-  with card_col_stats:
-    st.markdown(
-        f"""
-            <div style="display: flex; justify-content: space-around; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 10px; height: 100%; margin-top: 5px;">
-                <div style="text-align: center;">
-                    <span style="display: block; font-size: 18px; font-weight: bold; color: #00E676;">{followers_num}</span>
-                    <span style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;">Followers</span>
-                </div>
-                <div style="width: 1px; background: rgba(255,255,255,0.1); height: 30px;"></div>
-                <div style="text-align: center;">
-                    <span style="display: block; font-size: 18px; font-weight: bold; color: #00E676;">{following_num}</span>
-                    <span style="font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;">Following</span>
-                </div>
-            </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-  with card_col_settings:
-    st.markdown(
-        "<div style='display: flex; justify-content: flex-end; align-items:"
-        " center; height: 100%;'>",
-        unsafe_allow_html=True,
-    )
-    if st.button(
-        "⚙️", key="profile_settings_icon_btn", help="Edit Profile Settings"
-    ):
-      st.session_state.show_edit_profile = (
-          not st.session_state.show_edit_profile
-      )
-      st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-  st.markdown("</div>", unsafe_allow_html=True)
   st.markdown("<br>", unsafe_allow_html=True)
+  if st.button("⚙️ Edit Profile Settings"):
+    st.session_state.show_edit_profile = not st.session_state.show_edit_profile
+    st.rerun()
 
   if st.session_state.show_edit_profile:
-    st.markdown(
-        """
-            <div style="background-color: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #00C853; margin-bottom: 20px;">
-                <h3 style="margin-top: 0; color: #00C853;">⚙️ Edit Profile Settings</h3>
-                <p style='color: #8b949e; font-size: 0.9rem;'>Update your profile information and username below.</p>
-            </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     with st.form("edit_profile"):
       new_username_input = st.text_input("🏷️ Username", value=username)
       new_full = st.text_input("👤 Full Name", value=user.get("full_name", ""))
-
-      gender_options = ["Male", "Female", "Other"]
-      current_gender = user.get("gender", "Other")
-      gender_idx = (
-          gender_options.index(current_gender)
-          if current_gender in gender_options
-          else 2
-      )
-      new_gender = st.selectbox("⚧ Gender", gender_options, index=gender_idx)
-
-      new_dob = st.text_input(
-          "📅 Date of Birth (YYYY-MM-DD)", value=user.get("birth_date", "")
-      )
-
-      acc_options = ["Public", "Private"]
-      current_acc = user.get("account_type", "Public")
-      acc_idx = (
-          acc_options.index(current_acc) if current_acc in acc_options else 0
-      )
-      new_acc_type = st.selectbox(
-          "🔒 Account Type (Public = Everyone, Private = Friends only)",
-          acc_options,
-          index=acc_idx,
-      )
-
       new_bio = st.text_area("📝 Bio", value=user.get("bio", ""))
-
-      uploaded_pic_file = st.file_uploader(
-          "🖼️ Upload Profile Picture (JPG, PNG)", type=["jpg", "jpeg", "png"]
-      )
-
       new_pass = st.text_input(
           "🔑 Change Password (leave blank to keep current)",
           type="password",
           value="",
       )
 
-      submit_profile = st.form_submit_button(
-          "Save Profile Settings", use_container_width=True
-      )
-
-      if submit_profile:
-        final_pic_base64 = user.get("profile_pic", "")
-        if uploaded_pic_file is not None:
-          bytes_data = uploaded_pic_file.getvalue()
-          encoded = base64.b64encode(bytes_data).decode()
-          file_extension = uploaded_pic_file.type.split("/")[-1]
-          final_pic_base64 = f"data:image/{file_extension};base64,{encoded}"
-
+      if st.form_submit_button("Save Profile Settings", use_container_width=True):
         updated_ok, err_msg = update_user_profile(
             username,
             new_username_input,
             new_full,
             new_bio,
-            final_pic_base64,
-            new_gender,
-            new_dob,
-            new_acc_type,
+            user.get("profile_pic", ""),
+            user.get("gender", "Other"),
+            user.get("birth_date", ""),
+            user.get("account_type", "Public"),
             new_pass,
         )
-
         if updated_ok:
-          conn = get_db_connection()
-          if conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM users WHERE username = ?",
-                (new_username_input.strip().lower(),),
-            )
-            updated_row = cursor.fetchone()
-            if updated_row:
-              st.session_state.user = dict(updated_row)
-            conn.close()
-
           st.session_state.show_edit_profile = False
-          st.success("Profile and username updated successfully!")
+          st.success("Profile updated successfully!")
           st.rerun()
         else:
-          st.error(
-              f"Failed to update profile: {err_msg or 'Username might already be' ' taken.'}"
-          )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("⚠️ Danger Zone: Delete Account"):
-      st.markdown(
-          "<p style='color: #ff4b4b; font-size: 14px;'>Once you delete your"
-          " account, all your profile data, posts, reels, and message logs will"
-          " be permanently removed.</p>",
-          unsafe_allow_html=True,
-      )
-      confirm_delete = st.text_input(
-          "Type your username to confirm deletion",
-          placeholder=username,
-          key="confirm_delete_input",
-      )
-
-      if st.button("Permanently Delete My Account 🗑️", type="primary"):
-        if confirm_delete.strip().lower() == username.lower():
-          conn = get_db_connection()
-          if conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM users WHERE username = ?", (username,))
-            cursor.execute(
-                "DELETE FROM reels_posts WHERE username = ?", (username,))
-            cursor.execute(
-                "DELETE FROM messages WHERE sender = ? OR receiver = ?",
-                (username, username),
-            )
-            cursor.execute(
-                "DELETE FROM follows WHERE follower = ? OR following = ?",
-                (username, username),
-            )
-            conn.commit()
-            conn.close()
-
-          st.session_state.logged_in = False
-          st.session_state.user = None
-          st.session_state.show_edit_profile = False
-          st.success("Your account has been successfully deleted.")
-          st.rerun()
-        else:
-          st.error("Username confirmation doesn't match. Deletion aborted.")
+          st.error(f"Failed to update profile: {err_msg}")
 
 st.markdown(
     "<p style='text-align: center; color: #555; font-size: 0.7rem;"
