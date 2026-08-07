@@ -1215,13 +1215,6 @@ elif current_tab == "Chat":
         unsafe_allow_html=True,
     )
 
-    try:
-      from streamlit_autorefresh import st_autorefresh
-
-      st_autorefresh(interval=3000, limit=None, key="chat_live_sync")
-    except ImportError:
-      pass
-
 # ==============================================================================
 # TAB 4: PROFILE SECTION (WITH EDIT & DELETE ACCOUNT FEATURE)
 # ==============================================================================
@@ -1444,8 +1437,7 @@ elif current_tab == "Profile":
             cursor = conn.cursor()
             cursor.execute("DELETE FROM users WHERE username = ?", (username,))
             cursor.execute(
-                "DELETE FROM reels_posts WHERE username = ?", (username,)
-            )
+                "DELETE FROM reels_posts WHERE username = ?", (username,))
             cursor.execute(
                 "DELETE FROM messages WHERE sender = ? OR receiver = ?",
                 (username, username),
