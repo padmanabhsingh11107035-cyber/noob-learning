@@ -375,11 +375,9 @@ if "chat_sub_mode" not in st.session_state:
   st.session_state.chat_sub_mode = "Direct Messages"
 if "show_edit_profile" not in st.session_state:
   st.session_state.show_edit_profile = False
-if "chat_theme" not in st.session_state:
-  st.session_state.chat_theme = "Dark Futuristic"
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME
+# 2. PREMIUM CUSTOM CSS THEME & AUTO-SCROLL ENGINE
 # ==============================================================================
 st.markdown(
     """
@@ -454,12 +452,22 @@ st.markdown(
         font-weight: 700 !important;
         font-size: 1rem !important;
     }
-
-    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span, [data-testid="stChatMessage"] div {
-        color: #FFFFFF !important;
-        -webkit-text-fill-color: #FFFFFF !important;
-    }
 </style>
+
+<script>
+    // Enforce automatic lag-free container snapping for chat feeds
+    function autoScrollChat() {
+        const doc = window.parent.document;
+        const containers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
+        containers.forEach(c => {
+            if (c.scrollHeight > c.clientHeight && c.scrollTop + c.clientHeight < c.scrollHeight - 50) {
+                // If close to bottom or on load, snap down
+                c.scrollTop = c.scrollHeight;
+            }
+        });
+    }
+    setInterval(autoScrollChat, 300);
+</script>
 """,
     unsafe_allow_html=True,
 )
@@ -814,7 +822,7 @@ elif current_tab == "Reels":
             st.rerun()
 
 # ==============================================================================
-# TAB 3: CHAT & GROUP CHAT SECTION (LAG-FREE FRAGMENT WITH AUTO-SCROLL)
+# TAB 3: CHAT & GROUP CHAT SECTION (LAG-FREE FRAGMENT WITH LOGO RENDERING)
 # ==============================================================================
 elif current_tab == "Chat":
   chat_mode_col1, chat_mode_col2 = st.columns(2)
@@ -864,8 +872,25 @@ elif current_tab == "Chat":
       for p_dict in filtered_peers:
         peer_uname = p_dict["username"]
         display_name = p_dict.get("full_name") or peer_uname
+        peer_pic_val = p_dict.get("profile_pic", "")
 
-        c_info, c_chat = st.columns([5, 1])
+        c_avatar, c_info, c_chat = st.columns([0.6, 4.4, 1])
+        with c_avatar:
+          if peer_pic_val and peer_pic_val.startswith("data:image"):
+            st.markdown(
+                f"<img src='{peer_pic_val}' style='width: 36px; height: 36px;"
+                " border-radius: 50%; object-fit: cover; margin-top: 2px;'>",
+                unsafe_allow_html=True,
+            )
+          else:
+            st.markdown(
+                f"<div style='background-color: #00C853; color: #0e1117; width:"
+                " 36px; height: 36px; border-radius: 50%; display: flex;"
+                " align-items: center; justify-content: center; font-weight:"
+                f" bold; font-size: 15px; margin-top:"
+                f" 2px;'>{peer_uname[0].upper()}</div>",
+                unsafe_allow_html=True,
+            )
         with c_info:
           st.markdown(
               f"**{display_name}** <span style='color:#888;'>(@{peer_uname})"
@@ -904,24 +929,23 @@ elif current_tab == "Chat":
       with c_logo:
         if peer_pic and peer_pic.startswith("data:image"):
           st.markdown(
-              f"""
-                    <img src='{peer_pic}' style='width: 36px; height: 36px; border-radius: 50%; object-fit: cover; margin-top: 2px;'>
-                """,
+              f"<img src='{peer_pic}' style='width: 36px; height: 36px;"
+              " border-radius: 50%; object-fit: cover; margin-top: 2px;'>",
               unsafe_allow_html=True,
           )
         else:
-          peer_initial = peer_name[0].upper()
           st.markdown(
-              f"""
-                    <div style="background-color: #00C853; color: #0e1117; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 15px; margin-top: 2px;">
-                        {peer_initial}
-                    </div>
-                """,
+              f"<div style='background-color: #00C853; color: #0e1117; width:"
+              " 36px; height: 36px; border-radius: 50%; display: flex;"
+              " align-items: center; justify-content: center; font-weight:"
+              f" bold; font-size: 15px; margin-top:"
+              f" 2px;'>{peer_name[0].upper()}</div>",
               unsafe_allow_html=True,
           )
       with c_title:
         st.markdown(
-            f"<h3 style='margin: 0; color: #fff; padding-top: 2px;'>@{peer_name}</h3>",
+            f"<h3 style='margin: 0; color: #fff; padding-top:"
+            f" 2px;'>@{peer_name}</h3>",
             unsafe_allow_html=True,
         )
       with c_del:
@@ -963,7 +987,7 @@ elif current_tab == "Chat":
           messages = cursor.fetchall()
           conn.close()
 
-        chat_container = st.container(height=400)
+        chat_container = st.container(height=420)
         with chat_container:
           if not messages:
             st.info(f"No messages yet with @{peer_name}. Say hello!")
@@ -1008,22 +1032,6 @@ elif current_tab == "Chat":
                     " target='_blank'>📥 Download Attached Document</a></div>",
                     unsafe_allow_html=True,
                 )
-
-        # Robust Auto-Scroll Fix targeting Streamlit container heights instantly
-        st.markdown(
-            """
-                <script>
-                    const doc = window.parent.document;
-                    const chatContainers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
-                    chatContainers.forEach(container => {
-                        if (container.scrollHeight > container.clientHeight) {
-                            container.scrollTop = container.scrollHeight;
-                        }
-                    });
-                </script>
-            """,
-            unsafe_allow_html=True,
-        )
 
         with st.form(key="dm_send_form", clear_on_submit=True):
           c_input, c_file, c_btn = st.columns([3, 2, 1])
@@ -1205,7 +1213,7 @@ elif current_tab == "Chat":
           group_msgs = cursor.fetchall()
           conn.close()
 
-        group_container = st.container(height=400)
+        group_container = st.container(height=420)
         with group_container:
           if not group_msgs:
             st.info(
@@ -1253,21 +1261,6 @@ elif current_tab == "Chat":
                     " target='_blank'>📥 Download Attached Document</a></div>",
                     unsafe_allow_html=True,
                 )
-
-        st.markdown(
-            """
-                <script>
-                    const doc = window.parent.document;
-                    const chatContainers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
-                    chatContainers.forEach(container => {
-                        if (container.scrollHeight > container.clientHeight) {
-                            container.scrollTop = container.scrollHeight;
-                        }
-                    });
-                </script>
-            """,
-            unsafe_allow_html=True,
-        )
 
         with st.form(key="group_send_form", clear_on_submit=True):
           gc_input, gc_file, gc_btn = st.columns([3, 2, 1])
