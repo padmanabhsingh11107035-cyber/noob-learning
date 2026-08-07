@@ -946,78 +946,73 @@ elif current_tab == "Chat":
           or search_query in p.get("full_name", "").lower()
       ]
 
+      conn_l = get_db_connection()
+      for p_dict in filtered_peers:
+        peer_uname = p_dict["username"]
+        display_name = p_dict.get("full_name") or peer_uname
+        peer_pic_val = p_dict.get("profile_pic", "")
 
-      @st.fragment(run_every=1.5)
-      def render_peer_list():
-        conn_l = get_db_connection()
-        for p_dict in filtered_peers:
-          peer_uname = p_dict["username"]
-          display_name = p_dict.get("full_name") or peer_uname
-          peer_pic_val = p_dict.get("profile_pic", "")
+        unread_count = 0
+        if conn_l:
+          cur_l = conn_l.cursor()
+          cur_l.execute(
+              """
+                        SELECT COUNT(*) FROM messages 
+                        WHERE sender = ? AND receiver = ? AND (is_read = 0 OR is_read IS NULL)
+                    """,
+              (peer_uname, username),
+          )
+          row_cnt = cur_l.fetchone()
+          if row_cnt:
+            unread_count = row_cnt[0]
 
-          unread_count = 0
-          if conn_l:
-            cur_l = conn_l.cursor()
-            cur_l.execute(
-                """
-                            SELECT COUNT(*) FROM messages 
-                            WHERE sender = ? AND receiver = ? AND (is_read = 0 OR is_read IS NULL)
-                        """,
-                (peer_uname, username),
-            )
-            row_cnt = cur_l.fetchone()
-            if row_cnt:
-              unread_count = row_cnt[0]
-
-          c_avatar, c_info, c_chat = st.columns([0.6, 4.4, 1])
-          with c_avatar:
-            if peer_pic_val and peer_pic_val.startswith("data:image"):
-              st.markdown(
-                  f"<img src='{peer_pic_val}' style='width: 36px; height: 36px;"
-                  " border-radius: 50%; object-fit: cover; margin-top: 2px;'>",
-                  unsafe_allow_html=True,
-              )
-            else:
-              st.markdown(
-                  f"<div style='background-color: #00C853; color: #0e1117; width:"
-                  " 36px; height: 36px; border-radius: 50%; display: flex;"
-                  " align-items: center; justify-content: center; font-weight:"
-                  f" bold; font-size: 15px; margin-top:"
-                  f" 2px;'>{peer_uname[0].upper()}</div>",
-                  unsafe_allow_html=True,
-              )
-          with c_info:
-            badge_html = (
-                f"<span class='unread-badge'>{unread_count}</span>"
-                if unread_count > 0
-                else ""
-            )
+        c_avatar, c_info, c_chat = st.columns([0.6, 4.4, 1])
+        with c_avatar:
+          if peer_pic_val and peer_pic_val.startswith("data:image"):
             st.markdown(
-                f"**{display_name}** <span style='color:#888;'>(@{peer_uname})"
-                f"</span> {badge_html}",
+                f"<img src='{peer_pic_val}' style='width: 36px; height: 36px;"
+                " border-radius: 50%; object-fit: cover; margin-top: 2px;'>",
                 unsafe_allow_html=True,
             )
-          with c_chat:
-            if st.button("Chat ➔", key=f"dm_btn_{peer_uname}"):
-              if conn_l:
-                cur_l.execute(
-                    """
-                                    UPDATE messages SET is_read = 1 
-                                    WHERE sender = ? AND receiver = ?
-                                """,
-                    (peer_uname, username),
-                )
-                conn_l.commit()
-              st.session_state.active_chat_user = peer_uname
-              st.rerun()
+          else:
+            st.markdown(
+                f"<div style='background-color: #00C853; color: #0e1117; width:"
+                " 36px; height: 36px; border-radius: 50%; display: flex;"
+                " align-items: center; justify-content: center; font-weight:"
+                f" bold; font-size: 15px; margin-top:"
+                f" 2px;'>{peer_uname[0].upper()}</div>",
+                unsafe_allow_html=True,
+            )
+        with c_info:
+          badge_html = (
+              f"<span class='unread-badge'>{unread_count}</span>"
+              if unread_count > 0
+              else ""
+          )
           st.markdown(
-              f"<hr style='border: 0.2px solid {border_color}; margin: 5px 0;'>",
+              f"**{display_name}** <span style='color:#888;'>(@{peer_uname})"
+              f"</span> {badge_html}",
               unsafe_allow_html=True,
           )
-        if conn_l:
-          conn_l.close()
-
-      render_peer_list()
+        with c_chat:
+          if st.button("Chat ➔", key=f"dm_btn_{peer_uname}"):
+            if conn_l:
+              cur_l.execute(
+                  """
+                                UPDATE messages SET is_read = 1 
+                                WHERE sender = ? AND receiver = ?
+                            """,
+                  (peer_uname, username),
+              )
+              conn_l.commit()
+            st.session_state.active_chat_user = peer_uname
+            st.rerun()
+        st.markdown(
+            f"<hr style='border: 0.2px solid {border_color}; margin: 5px 0;'>",
+            unsafe_allow_html=True,
+        )
+      if conn_l:
+        conn_l.close()
 
     else:
       peer_name = st.session_state.active_chat_user
@@ -1095,138 +1090,134 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
+      # Optimized message loading block without recursive/nested fragmented loops
+      conn = get_db_connection()
+      messages = []
+      if conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                    SELECT * FROM messages 
+                    WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
+                    ORDER BY id ASC
+                """,
+            (username, peer_name, peer_name, username),
+        )
+        messages = cursor.fetchall()
+        cursor.execute(
+            """
+                    UPDATE messages SET is_read = 1 
+                    WHERE sender = ? AND receiver = ? AND is_read = 0
+                """,
+            (peer_name, username),
+        )
+        conn.commit()
+        conn.close()
 
-      @st.fragment(run_every=1.0)
-      def render_dm_fragment():
-        conn = get_db_connection()
-        messages = []
-        if conn:
-          cursor = conn.cursor()
-          cursor.execute(
-              """
-                        SELECT * FROM messages 
-                        WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
-                        ORDER BY id ASC
-                    """,
-              (username, peer_name, peer_name, username),
-          )
-          messages = cursor.fetchall()
-          cursor.execute(
-              """
-                        UPDATE messages SET is_read = 1 
-                        WHERE sender = ? AND receiver = ? AND is_read = 0
-                    """,
-              (peer_name, username),
-          )
-          conn.commit()
-          conn.close()
+      chat_container = st.container(height=420)
+      with chat_container:
+        if not messages:
+          st.info(f"No messages yet with @{peer_name}. Say hello!")
+        for msg in messages:
+          m = dict(msg)
+          is_sender = m["sender"] == username
+          align = "flex-end" if is_sender else "flex-start"
+          bg = "#1f6feb" if is_sender else "#21262d"
+          avatar_html = get_user_avatar_html(m["sender"])
 
-        chat_container = st.container(height=420)
-        with chat_container:
-          if not messages:
-            st.info(f"No messages yet with @{peer_name}. Say hello!")
-          for msg in messages:
-            m = dict(msg)
-            is_sender = m["sender"] == username
-            align = "flex-end" if is_sender else "flex-start"
-            bg = "#1f6feb" if is_sender else "#21262d"
-            avatar_html = get_user_avatar_html(m["sender"])
-
-            st.markdown(
-                f"""
-                        <div style="display: flex; justify-content: {align}; margin-bottom: 10px;">
-                            <div style="background-color: {bg}; color: #fff; padding: 10px 14px; border-radius: 10px; max-width: 70%; word-break: break-word;">
-                                <div style="margin-bottom: 4px; display: flex; align-items: center;">
-                                    {avatar_html}
-                                    <small style="color: #aaa; font-size: 11px;">{m['sender']} • {m.get('timestamp','')}</small>
-                                </div>
-                                <p style="margin: 4px 0 0 0;">{m['message']}</p>
+          st.markdown(
+              f"""
+                    <div style="display: flex; justify-content: {align}; margin-bottom: 10px;">
+                        <div style="background-color: {bg}; color: #fff; padding: 10px 14px; border-radius: 10px; max-width: 70%; word-break: break-word;">
+                            <div style="margin-bottom: 4px; display: flex; align-items: center;">
+                                {avatar_html}
+                                <small style="color: #aaa; font-size: 11px;">{m['sender']} • {m.get('timestamp','')}</small>
                             </div>
+                            <p style="margin: 4px 0 0 0;">{m['message']}</p>
                         </div>
-                    """,
-                unsafe_allow_html=True,
-            )
-            if m.get("media_data"):
-              if m.get("media_type") == "image":
-                st.markdown(
-                    f"<div style='display: flex; justify-content:"
-                    f" {align};'><img src='{m['media_data']}'"
-                    " style='max-width: 250px; border-radius: 8px; margin-bottom:"
-                    " 10px;'></div>",
-                    unsafe_allow_html=True,
-                )
-              elif m.get("media_type") == "video":
-                st.markdown(
-                    f"<div style='display: flex; justify-content:"
-                    f" {align};'><video controls src='{m['media_data']}'"
-                    " style='max-width: 250px; border-radius: 8px; margin-bottom:"
-                    " 10px;'></video></div>",
-                    unsafe_allow_html=True,
-                )
-              elif m.get("media_type") == "document":
-                st.markdown(
-                    f"<div style='display: flex; justify-content:"
-                    f" {align};'><a href='{m['media_data']}' download='file'"
-                    " target='_blank'>📥 Download Attached Document</a></div>",
-                    unsafe_allow_html=True,
-                )
-
-        with st.form(key="dm_send_form", clear_on_submit=True):
-          c_input, c_file, c_btn = st.columns([3, 2, 1])
-          with c_input:
-            msg_text = st.text_input(
-                "Message",
-                placeholder="Type text or use emojis 😊🚀...",
-                label_visibility="collapsed",
-            )
-          with c_file:
-            attached_file = st.file_uploader(
-                "Media",
-                type=["png", "jpg", "jpeg", "mp4", "mov", "pdf", "txt"],
-                label_visibility="collapsed",
-            )
-          with c_btn:
-            send_pressed = st.form_submit_button("Send ➔")
-
-          if send_pressed and (msg_text.strip() or attached_file):
-            encoded_media = None
-            media_type = None
-            if attached_file:
-              bytes_data = attached_file.getvalue()
-              b64_str = base64.b64encode(bytes_data).decode()
-              ftype = attached_file.type.split("/")[0]
-              if ftype == "image":
-                media_type = "image"
-                encoded_media = f"data:image/{attached_file.type.split('/')[-1]};base64,{b64_str}"
-              elif ftype == "video":
-                media_type = "video"
-                encoded_media = f"data:video/{attached_file.type.split('/')[-1]};base64,{b64_str}"
-              else:
-                media_type = "document"
-                encoded_media = f"data:application/octet-stream;base64,{b64_str}"
-
-            conn = get_db_connection()
-            if conn:
-              cursor = conn.cursor()
-              cursor.execute(
-                  """
-                            INSERT INTO messages (sender, receiver, message, media_data, media_type, timestamp, is_read)
-                            VALUES (?, ?, ?, ?, ?, ?, 0)
-                        """,
-                  (
-                      username,
-                      peer_name,
-                      msg_text.strip(),
-                      encoded_media,
-                      media_type,
-                      get_current_ist_time(),
-                  ),
+                    </div>
+                """,
+              unsafe_allow_html=True,
+          )
+          if m.get("media_data"):
+            if m.get("media_type") == "image":
+              st.markdown(
+                  f"<div style='display: flex; justify-content:"
+                  f" {align};'><img src='{m['media_data']}'"
+                  " style='max-width: 250px; border-radius: 8px; margin-bottom:"
+                  " 10px;'></div>",
+                  unsafe_allow_html=True,
               )
-              conn.commit()
-              conn.close()
-              st.rerun()
+            elif m.get("media_type") == "video":
+              st.markdown(
+                  f"<div style='display: flex; justify-content:"
+                  f" {align};'><video controls src='{m['media_data']}'"
+                  " style='max-width: 250px; border-radius: 8px; margin-bottom:"
+                  " 10px;'></video></div>",
+                  unsafe_allow_html=True,
+              )
+            elif m.get("media_type") == "document":
+              st.markdown(
+                  f"<div style='display: flex; justify-content:"
+                  f" {align};'><a href='{m['media_data']}' download='file'"
+                  " target='_blank'>📥 Download Attached Document</a></div>",
+                  unsafe_allow_html=True,
+              )
 
-      render_dm_fragment()
+      with st.form(key="dm_send_form", clear_on_submit=True):
+        c_input, c_file, c_btn = st.columns([3, 2, 1])
+        with c_input:
+          msg_text = st.text_input(
+              "Message",
+              placeholder="Type text or use emojis 😊🚀...",
+              label_visibility="collapsed",
+          )
+        with c_file:
+          attached_file = st.file_uploader(
+              "Media",
+              type=["png", "jpg", "jpeg", "mp4", "mov", "pdf", "txt"],
+              label_visibility="collapsed",
+          )
+        with c_btn:
+          send_pressed = st.form_submit_button("Send ➔")
+
+        if send_pressed and (msg_text.strip() or attached_file):
+          encoded_media = None
+          media_type = None
+          if attached_file:
+            bytes_data = attached_file.getvalue()
+            b64_str = base64.b64encode(bytes_data).decode()
+            ftype = attached_file.type.split("/")[0]
+            if ftype == "image":
+              media_type = "image"
+              encoded_media = f"data:image/{attached_file.type.split('/')[-1]};base64,{b64_str}"
+            elif ftype == "video":
+              media_type = "video"
+              encoded_media = f"data:video/{attached_file.type.split('/')[-1]};base64,{b64_str}"
+            else:
+              media_type = "document"
+              encoded_media = f"data:application/octet-stream;base64,{b64_str}"
+
+          conn = get_db_connection()
+          if conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                        INSERT INTO messages (sender, receiver, message, media_data, media_type, timestamp, is_read)
+                        VALUES (?, ?, ?, ?, ?, ?, 0)
+                    """,
+                (
+                    username,
+                    peer_name,
+                    msg_text.strip(),
+                    encoded_media,
+                    media_type,
+                    get_current_ist_time(),
+                ),
+            )
+            conn.commit()
+            conn.close()
+            st.rerun()
 
   # ----------------------------------------------------
   # SUB-MODE B: GROUP CHATS (PRIVATE WITH ADMIN CONTROLS)
@@ -1498,133 +1489,129 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
+      # Optimized group chat loading block without recursive/nested fragmented loops
+      conn = get_db_connection()
+      group_msgs = []
+      if conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                    SELECT * FROM group_messages 
+                    WHERE group_name = ?
+                    ORDER BY id ASC
+                """,
+            (active_group,),
+        )
+        group_msgs = cursor.fetchall()
+        conn.close()
 
-      @st.fragment(run_every=1.0)
-      def render_group_chat_fragment():
-        conn = get_db_connection()
-        group_msgs = []
-        if conn:
-          cursor = conn.cursor()
-          cursor.execute(
-              """
-                        SELECT * FROM group_messages 
-                        WHERE group_name = ?
-                        ORDER BY id ASC
-                    """,
-              (active_group,),
+      group_container = st.container(height=420)
+      with group_container:
+        if not group_msgs:
+          st.info(
+              f"Welcome to {active_group}! Be the first to send a message or"
+              " media file."
           )
-          group_msgs = cursor.fetchall()
-          conn.close()
+        for g_msg in group_msgs:
+          gm = dict(g_msg)
+          is_sender = gm["sender"] == username
+          align = "flex-end" if is_sender else "flex-start"
+          bg = "#1f6feb" if is_sender else "#21262d"
+          avatar_html = get_user_avatar_html(gm["sender"])
 
-        group_container = st.container(height=420)
-        with group_container:
-          if not group_msgs:
-            st.info(
-                f"Welcome to {active_group}! Be the first to send a message or"
-                " media file."
-            )
-          for g_msg in group_msgs:
-            gm = dict(g_msg)
-            is_sender = gm["sender"] == username
-            align = "flex-end" if is_sender else "flex-start"
-            bg = "#1f6feb" if is_sender else "#21262d"
-            avatar_html = get_user_avatar_html(gm["sender"])
-
-            st.markdown(
-                f"""
-                        <div style="display: flex; justify-content: {align}; margin-bottom: 10px;">
-                            <div style="background-color: {bg}; color: #fff; padding: 10px 14px; border-radius: 10px; max-width: 70%; word-break: break-word;">
-                                <div style="margin-bottom: 4px; display: flex; align-items: center;">
-                                    {avatar_html}
-                                    <small style="color: #00E676; font-size: 11px; font-weight: bold;">@{gm['sender']} • {gm.get('timestamp','')}</small>
-                                </div>
-                                <p style="margin: 4px 0 0 0;">{gm['message']}</p>
+          st.markdown(
+              f"""
+                    <div style="display: flex; justify-content: {align}; margin-bottom: 10px;">
+                        <div style="background-color: {bg}; color: #fff; padding: 10px 14px; border-radius: 10px; max-width: 70%; word-break: break-word;">
+                            <div style="margin-bottom: 4px; display: flex; align-items: center;">
+                                {avatar_html}
+                                <small style="color: #00E676; font-size: 11px; font-weight: bold;">@{gm['sender']} • {gm.get('timestamp','')}</small>
                             </div>
+                            <p style="margin: 4px 0 0 0;">{gm['message']}</p>
                         </div>
-                    """,
-                unsafe_allow_html=True,
-            )
-            if gm.get("media_data"):
-              if gm.get("media_type") == "image":
-                st.markdown(
-                    f"<div style='display: flex; justify-content:"
-                    f" {align};'><img src='{gm['media_data']}'"
-                    " style='max-width: 250px; border-radius: 8px; margin-bottom:"
-                    " 10px;'></div>",
-                    unsafe_allow_html=True,
-                )
-              elif gm.get("media_type") == "video":
-                st.markdown(
-                    f"<div style='display: flex; justify-content:"
-                    f" {align};'><video controls src='{gm['media_data']}'"
-                    " style='max-width: 250px; border-radius: 8px; margin-bottom:"
-                    " 10px;'></video></div>",
-                    unsafe_allow_html=True,
-                )
-              elif gm.get("media_type") == "document":
-                st.markdown(
-                    f"<div style='display: flex; justify-content:"
-                    f" {align};'><a href='{gm['media_data']}' download='file'"
-                    " target='_blank'>📥 Download Attached Document</a></div>",
-                    unsafe_allow_html=True,
-                )
-
-        with st.form(key="group_send_form", clear_on_submit=True):
-          gc_input, gc_file, gc_btn = st.columns([3, 2, 1])
-          with gc_input:
-            g_msg_text = st.text_input(
-                "Group Message",
-                placeholder="Type message, emojis 😊🚀...",
-                label_visibility="collapsed",
-            )
-          with gc_file:
-            g_attached_file = st.file_uploader(
-                "Group Media",
-                type=["png", "jpg", "jpeg", "mp4", "mov", "pdf", "txt"],
-                label_visibility="collapsed",
-            )
-          with gc_btn:
-            g_send_pressed = st.form_submit_button("Send ➔")
-
-          if g_send_pressed and (g_msg_text.strip() or g_attached_file):
-            g_encoded_media = None
-            g_media_type = None
-            if g_attached_file:
-              g_bytes = g_attached_file.getvalue()
-              g_b64 = base64.b64encode(g_bytes).decode()
-              g_ftype = g_attached_file.type.split("/")[0]
-              if g_ftype == "image":
-                g_media_type = "image"
-                g_encoded_media = f"data:image/{g_attached_file.type.split('/')[-1]};base64,{g_b64}"
-              elif g_ftype == "video":
-                g_media_type = "video"
-                g_encoded_media = f"data:video/{g_attached_file.type.split('/')[-1]};base64,{g_b64}"
-              else:
-                g_media_type = "document"
-                g_encoded_media = f"data:application/octet-stream;base64,{g_b64}"
-
-            conn = get_db_connection()
-            if conn:
-              cursor = conn.cursor()
-              cursor.execute(
-                  """
-                            INSERT INTO group_messages (group_name, sender, message, media_data, media_type, timestamp)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                  (
-                      active_group,
-                      username,
-                      g_msg_text.strip(),
-                      g_encoded_media,
-                      g_media_type,
-                      get_current_ist_time(),
-                  ),
+                    </div>
+                """,
+              unsafe_allow_html=True,
+          )
+          if gm.get("media_data"):
+            if gm.get("media_type") == "image":
+              st.markdown(
+                  f"<div style='display: flex; justify-content:"
+                  f" {align};'><img src='{gm['media_data']}'"
+                  " style='max-width: 250px; border-radius: 8px; margin-bottom:"
+                  " 10px;'></div>",
+                  unsafe_allow_html=True,
               )
-              conn.commit()
-              conn.close()
-              st.rerun()
+            elif gm.get("media_type") == "video":
+              st.markdown(
+                  f"<div style='display: flex; justify-content:"
+                  f" {align};'><video controls src='{gm['media_data']}'"
+                  " style='max-width: 250px; border-radius: 8px; margin-bottom:"
+                  " 10px;'></video></div>",
+                  unsafe_allow_html=True,
+              )
+            elif gm.get("media_type") == "document":
+              st.markdown(
+                  f"<div style='display: flex; justify-content:"
+                  f" {align};'><a href='{gm['media_data']}' download='file'"
+                  " target='_blank'>📥 Download Attached Document</a></div>",
+                  unsafe_allow_html=True,
+              )
 
-      render_group_chat_fragment()
+      with st.form(key="group_send_form", clear_on_submit=True):
+        gc_input, gc_file, gc_btn = st.columns([3, 2, 1])
+        with gc_input:
+          g_msg_text = st.text_input(
+              "Group Message",
+              placeholder="Type message, emojis 😊🚀...",
+              label_visibility="collapsed",
+          )
+        with gc_file:
+          g_attached_file = st.file_uploader(
+              "Group Media",
+              type=["png", "jpg", "jpeg", "mp4", "mov", "pdf", "txt"],
+              label_visibility="collapsed",
+          )
+        with gc_btn:
+          g_send_pressed = st.form_submit_button("Send ➔")
+
+        if g_send_pressed and (g_msg_text.strip() or g_attached_file):
+          g_encoded_media = None
+          g_media_type = None
+          if g_attached_file:
+            g_bytes = g_attached_file.getvalue()
+            g_b64 = base64.b64encode(g_bytes).decode()
+            g_ftype = g_attached_file.type.split("/")[0]
+            if g_ftype == "image":
+              g_media_type = "image"
+              g_encoded_media = f"data:image/{g_attached_file.type.split('/')[-1]};base64,{g_b64}"
+            elif g_ftype == "video":
+              g_media_type = "video"
+              g_encoded_media = f"data:video/{g_attached_file.type.split('/')[-1]};base64,{g_b64}"
+            else:
+              g_media_type = "document"
+              g_encoded_media = f"data:application/octet-stream;base64,{g_b64}"
+
+          conn = get_db_connection()
+          if conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                        INSERT INTO group_messages (group_name, sender, message, media_data, media_type, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                (
+                    active_group,
+                    username,
+                    g_msg_text.strip(),
+                    g_encoded_media,
+                    g_media_type,
+                    get_current_ist_time(),
+                ),
+            )
+            conn.commit()
+            conn.close()
+            st.rerun()
 
 # ==============================================================================
 # TAB 4: PROFILE SECTION
