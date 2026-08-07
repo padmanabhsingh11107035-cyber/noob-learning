@@ -124,7 +124,6 @@ def init_db():
             )
         """)
 
-    # Check and migrate columns for messages & group_messages if needed
     for table_name in ["messages", "group_messages"]:
       cursor.execute(f"PRAGMA table_info({table_name})")
       t_cols = [col["name"] for col in cursor.fetchall()]
@@ -359,7 +358,7 @@ def update_user_profile(
   return success, error_msg
 
 
-# --- SESSION STATE ---
+# --- SESSION STATE INITIALIZATION ---
 if "logged_in" not in st.session_state:
   st.session_state.logged_in = False
 if "user" not in st.session_state:
@@ -815,10 +814,9 @@ elif current_tab == "Reels":
             st.rerun()
 
 # ==============================================================================
-# TAB 3: CHAT & GROUP CHAT SECTION (LAG-FREE FRAGMENT)
+# TAB 3: CHAT & GROUP CHAT SECTION (LAG-FREE FRAGMENT WITH AUTO-SCROLL)
 # ==============================================================================
 elif current_tab == "Chat":
-  # Top sub-navigation between Direct Messages and Group Chats
   chat_mode_col1, chat_mode_col2 = st.columns(2)
   with chat_mode_col1:
     if st.button("💬 Direct Messages", use_container_width=True):
@@ -885,14 +883,45 @@ elif current_tab == "Chat":
 
     else:
       peer_name = st.session_state.active_chat_user
-      c_back, c_title, c_del = st.columns([1, 4, 1])
+
+      conn_p = get_db_connection()
+      peer_pic = ""
+      if conn_p:
+        cur_p = conn_p.cursor()
+        cur_p.execute(
+            "SELECT profile_pic FROM users WHERE username = ?", (peer_name,)
+        )
+        p_row = cur_p.fetchone()
+        if p_row and p_row["profile_pic"]:
+          peer_pic = p_row["profile_pic"]
+        conn_p.close()
+
+      c_back, c_logo, c_title, c_del = st.columns([1, 0.6, 3.4, 1])
       with c_back:
         if st.button("⬅ Back"):
           st.session_state.active_chat_user = None
           st.rerun()
+      with c_logo:
+        if peer_pic and peer_pic.startswith("data:image"):
+          st.markdown(
+              f"""
+                    <img src='{peer_pic}' style='width: 36px; height: 36px; border-radius: 50%; object-fit: cover; margin-top: 2px;'>
+                """,
+              unsafe_allow_html=True,
+          )
+        else:
+          peer_initial = peer_name[0].upper()
+          st.markdown(
+              f"""
+                    <div style="background-color: #00C853; color: #0e1117; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 15px; margin-top: 2px;">
+                        {peer_initial}
+                    </div>
+                """,
+              unsafe_allow_html=True,
+          )
       with c_title:
         st.markdown(
-            f"<h3 style='margin: 0; color: #fff;'>💬 @{peer_name}</h3>",
+            f"<h3 style='margin: 0; color: #fff; padding-top: 2px;'>@{peer_name}</h3>",
             unsafe_allow_html=True,
         )
       with c_del:
@@ -917,8 +946,7 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
-      # Optimized Lag-Free Fragment for DM Chat
-      @st.fragment(run_every=2.5)
+      @st.fragment(run_every=1.5)
       def render_dm_fragment():
         conn = get_db_connection()
         messages = []
@@ -956,7 +984,6 @@ elif current_tab == "Chat":
                     """,
                 unsafe_allow_html=True,
             )
-            # Render attached media if present
             if m.get("media_data"):
               if m.get("media_type") == "image":
                 st.markdown(
@@ -982,7 +1009,22 @@ elif current_tab == "Chat":
                     unsafe_allow_html=True,
                 )
 
-        # Message Input Form with Multimedia & Emojis
+        # Robust Auto-Scroll Fix targeting Streamlit container heights instantly
+        st.markdown(
+            """
+                <script>
+                    const doc = window.parent.document;
+                    const chatContainers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
+                    chatContainers.forEach(container => {
+                        if (container.scrollHeight > container.clientHeight) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    });
+                </script>
+            """,
+            unsafe_allow_html=True,
+        )
+
         with st.form(key="dm_send_form", clear_on_submit=True):
           c_input, c_file, c_btn = st.columns([3, 2, 1])
           with c_input:
@@ -1052,7 +1094,6 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
-      # Create Group Form
       with st.form("create_group_form"):
         st.markdown("#### Create New Group")
         g_name = st.text_input(
@@ -1097,16 +1138,12 @@ elif current_tab == "Chat":
       groups = []
       if conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT * FROM chat_groups ORDER BY id DESC"
-        )  # Fixed source query
+        cursor.execute("SELECT * FROM chat_groups ORDER BY id DESC")
         groups = cursor.fetchall()
         conn.close()
 
       if not groups:
-        st.info(
-            "No active groups found. Create one above to get started!"
-        )  # Fixed source query
+        st.info("No active groups found. Create one above to get started!")
 
       for g in groups:
         g_dict = dict(g)
@@ -1151,8 +1188,7 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
-      # Optimized Lag-Free Fragment for Group Chat
-      @st.fragment(run_every=2.5)
+      @st.fragment(run_every=1.5)
       def render_group_chat_fragment():
         conn = get_db_connection()
         group_msgs = []
@@ -1193,7 +1229,6 @@ elif current_tab == "Chat":
                     """,
                 unsafe_allow_html=True,
             )
-            # Render multimedia attachment if any
             if gm.get("media_data"):
               if gm.get("media_type") == "image":
                 st.markdown(
@@ -1219,7 +1254,21 @@ elif current_tab == "Chat":
                     unsafe_allow_html=True,
                 )
 
-        # Group Message Input Form
+        st.markdown(
+            """
+                <script>
+                    const doc = window.parent.document;
+                    const chatContainers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
+                    chatContainers.forEach(container => {
+                        if (container.scrollHeight > container.clientHeight) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    });
+                </script>
+            """,
+            unsafe_allow_html=True,
+        )
+
         with st.form(key="group_send_form", clear_on_submit=True):
           gc_input, gc_file, gc_btn = st.columns([3, 2, 1])
           with gc_input:
