@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 1. DATABASE SETUP & CONNECTION (ROBUST MIGRATION)
+# 1. DATABASE SETUP & CONNECTION (ROBUST MIGRATION WITH UNSEEN TRACKING)
 # ==============================================================================
 
 
@@ -100,7 +100,8 @@ def init_db():
                 message TEXT,
                 media_data TEXT,
                 media_type TEXT,
-                timestamp TEXT
+                timestamp TEXT,
+                is_read INTEGER DEFAULT 0
             )
         """)
     cursor.execute("""
@@ -124,19 +125,24 @@ def init_db():
             )
         """)
 
-    for table_name in ["messages", "group_messages"]:
-      cursor.execute(f"PRAGMA table_info({table_name})")
-      t_cols = [col["name"] for col in cursor.fetchall()]
-      if "media_data" not in t_cols:
-        try:
-          cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN media_data TEXT")
-        except Exception:
-          pass
-      if "media_type" not in t_cols:
-        try:
-          cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN media_type TEXT")
-        except Exception:
-          pass
+    # Check columns for messages table (specifically is_read)
+    cursor.execute("PRAGMA table_info(messages)")
+    m_cols = [col["name"] for col in cursor.fetchall()]
+    if "is_read" not in m_cols:
+      try:
+        cursor.execute("ALTER TABLE messages ADD COLUMN is_read INTEGER DEFAULT 0")
+      except Exception:
+        pass
+    if "media_data" not in m_cols:
+      try:
+        cursor.execute("ALTER TABLE messages ADD COLUMN media_data TEXT")
+      except Exception:
+        pass
+    if "media_type" not in m_cols:
+      try:
+        cursor.execute("ALTER TABLE messages ADD COLUMN media_type TEXT")
+      except Exception:
+        pass
 
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
@@ -377,7 +383,7 @@ if "show_edit_profile" not in st.session_state:
   st.session_state.show_edit_profile = False
 
 # ==============================================================================
-# 2. PREMIUM CUSTOM CSS THEME & AGGRESSIVE AUTO-SCROLL ENGINE
+# 2. PREMIUM CUSTOM CSS THEME (OPTIMIZED & ANTI-LAG)
 # ==============================================================================
 st.markdown(
     """
@@ -452,23 +458,34 @@ st.markdown(
         font-weight: 700 !important;
         font-size: 1rem !important;
     }
+
+    .unread-badge {
+        background-color: #00C853;
+        color: #000;
+        border-radius: 50%;
+        padding: 2px 8px;
+        font-size: 12px;
+        font-weight: 900;
+        float: right;
+        display: inline-block;
+        min-width: 22px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0, 200, 83, 0.5);
+    }
 </style>
 
 <script>
-    // Bulletproof Auto-Scroll Engine: Forces container to stick to the absolute bottom instantly on every update/tick
+    // Optimized auto-scroll engine (Smooth & non-blocking to prevent lag)
     function forceAutoScroll() {
         const doc = window.parent.document;
         const containers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
         containers.forEach(c => {
-            // Check if this container looks like a message feed (has scrollable height)
-            if (c.scrollHeight > 200) {
+            if (c.scrollHeight > 250) {
                 c.scrollTop = c.scrollHeight;
             }
         });
     }
-    // Run frequently to ensure instant reaction to polling updates
-    setInterval(forceAutoScroll, 150);
-    setTimeout(forceAutoScroll, 300);
+    setInterval(forceAutoScroll, 300);
 </script>
 """,
     unsafe_allow_html=True,
@@ -824,7 +841,7 @@ elif current_tab == "Reels":
             st.rerun()
 
 # ==============================================================================
-# TAB 3: CHAT & GROUP CHAT SECTION (WITH MESSAGE AVATAR LOGOS AND AUTO-SCROLL)
+# TAB 3: CHAT & GROUP SECTION (WITH WHATSAPP-STYLE UNREAD BADGES & LEFT-FACING BACK BUTTON)
 # ==============================================================================
 elif current_tab == "Chat":
   chat_mode_col1, chat_mode_col2 = st.columns(2)
@@ -844,9 +861,7 @@ elif current_tab == "Chat":
       unsafe_allow_html=True,
   )
 
-  # ----------------------------------------------------
-  # HELPER TO FETCH USER PROFILE PIC
-  # ----------------------------------------------------
+
   def get_user_avatar_html(uname):
     conn_u = get_db_connection()
     u_pic = ""
@@ -864,6 +879,7 @@ elif current_tab == "Chat":
       initial = uname[0].upper() if uname else "U"
       return f"<span style='display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background-color: #00C853; color: #0e1117; border-radius: 50%; font-weight: bold; font-size: 12px; vertical-align: middle; margin-right: 6px;'>{initial}</span>"
 
+
   # ----------------------------------------------------
   # SUB-MODE A: DIRECT MESSAGES
   # ----------------------------------------------------
@@ -877,7 +893,7 @@ elif current_tab == "Chat":
       conn.close()
 
     if st.session_state.active_chat_user is None:
-      st.markdown("### 💬 Direct Messages & User Search")
+      st.markdown("### 💬 Direct Messages & Unread Notifications")
       search_query = st.text_input(
           "🔍 Search User ID / Username",
           placeholder="Type a username to search...",
@@ -891,45 +907,96 @@ elif current_tab == "Chat":
           or search_query in p.get("full_name", "").lower()
       ]
 
-      for p_dict in filtered_peers:
-        peer_uname = p_dict["username"]
-        display_name = p_dict.get("full_name") or peer_uname
-        peer_pic_val = p_dict.get("profile_pic", "")
+      # Lightweight polling fragment for unread count badges in chat list
+      @st.fragment(run_every=1.5)
+      def render_peer_list():
+        conn_l = get_db_connection()
+        for p_dict in filtered_peers:
+          peer_uname = p_dict["username"]
+          display_name = p_dict.get("full_name") or peer_uname
+          peer_pic_val = p_dict.get("profile_pic", "")
 
-        c_avatar, c_info, c_chat = st.columns([0.6, 4.4, 1])
-        with c_avatar:
-          if peer_pic_val and peer_pic_val.startswith("data:image"):
+          unread_count = 0
+          if conn_l:
+            cur_l = conn_l.cursor()
+            cur_l.execute(
+                """
+                            SELECT COUNT(*) FROM messages 
+                            WHERE sender = ? AND receiver = ? AND (is_read = 0 OR is_read IS NULL)
+                        """,
+                (peer_uname, username),
+            )
+            row_cnt = cur_l.fetchone()
+            if row_cnt:
+              unread_count = row_cnt[0]
+
+          c_avatar, c_info, c_chat = st.columns([0.6, 4.4, 1])
+          with c_avatar:
+            if peer_pic_val and peer_pic_val.startswith("data:image"):
+              st.markdown(
+                  f"<img src='{peer_pic_val}' style='width: 36px; height: 36px;"
+                  " border-radius: 50%; object-fit: cover; margin-top: 2px;'>",
+                  unsafe_allow_html=True,
+              )
+            else:
+              st.markdown(
+                  f"<div style='background-color: #00C853; color: #0e1117; width:"
+                  " 36px; height: 36px; border-radius: 50%; display: flex;"
+                  " align-items: center; justify-content: center; font-weight:"
+                  f" bold; font-size: 15px; margin-top:"
+                  f" 2px;'>{peer_uname[0].upper()}</div>",
+                  unsafe_allow_html=True,
+              )
+          with c_info:
+            badge_html = (
+                f"<span class='unread-badge'>{unread_count}</span>"
+                if unread_count > 0
+                else ""
+            )
             st.markdown(
-                f"<img src='{peer_pic_val}' style='width: 36px; height: 36px;"
-                " border-radius: 50%; object-fit: cover; margin-top: 2px;'>",
+                f"**{display_name}** <span style='color:#888;'>(@{peer_uname})"
+                f"</span> {badge_html}",
                 unsafe_allow_html=True,
             )
-          else:
-            st.markdown(
-                f"<div style='background-color: #00C853; color: #0e1117; width:"
-                " 36px; height: 36px; border-radius: 50%; display: flex;"
-                " align-items: center; justify-content: center; font-weight:"
-                f" bold; font-size: 15px; margin-top:"
-                f" 2px;'>{peer_uname[0].upper()}</div>",
-                unsafe_allow_html=True,
-            )
-        with c_info:
+          with c_chat:
+            if st.button("Chat ➔", key=f"dm_btn_{peer_uname}"):
+              # Mark all incoming messages from this user as read
+              if conn_l:
+                cur_l.execute(
+                    """
+                                    UPDATE messages SET is_read = 1 
+                                    WHERE sender = ? AND receiver = ?
+                                """,
+                    (peer_uname, username),
+                )
+                conn_l.commit()
+              st.session_state.active_chat_user = peer_uname
+              st.rerun()
           st.markdown(
-              f"**{display_name}** <span style='color:#888;'>(@{peer_uname})"
-              "</span>",
+              "<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>",
               unsafe_allow_html=True,
           )
-        with c_chat:
-          if st.button("Message 💬", key=f"dm_btn_{peer_uname}"):
-            st.session_state.active_chat_user = peer_uname
-            st.rerun()
-        st.markdown(
-            "<hr style='border: 0.2px solid #21262d; margin: 5px 0;'>",
-            unsafe_allow_html=True,
-        )
+        if conn_l:
+          conn_l.close()
+
+      render_peer_list()
 
     else:
       peer_name = st.session_state.active_chat_user
+
+      # Mark messages from this peer as read immediately upon entering chat page
+      conn_mark = get_db_connection()
+      if conn_mark:
+        cur_m = conn_mark.cursor()
+        cur_m.execute(
+            """
+                    UPDATE messages SET is_read = 1 
+                    WHERE sender = ? AND receiver = ?
+                """,
+            (peer_name, username),
+        )
+        conn_mark.commit()
+        conn_mark.close()
 
       conn_p = get_db_connection()
       peer_pic = ""
@@ -943,6 +1010,7 @@ elif current_tab == "Chat":
           peer_pic = p_row["profile_pic"]
         conn_p.close()
 
+      # Dedicated chat page with left-facing arrow back button
       c_back, c_logo, c_title, c_del = st.columns([1, 0.6, 3.4, 1])
       with c_back:
         if st.button("⬅ Back"):
@@ -1007,6 +1075,15 @@ elif current_tab == "Chat":
               (username, peer_name, peer_name, username),
           )
           messages = cursor.fetchall()
+          # Mark incoming messages as read while viewing chat
+          cursor.execute(
+              """
+                        UPDATE messages SET is_read = 1 
+                        WHERE sender = ? AND receiver = ? AND is_read = 0
+                    """,
+              (peer_name, username),
+          )
+          conn.commit()
           conn.close()
 
         chat_container = st.container(height=420)
@@ -1098,8 +1175,8 @@ elif current_tab == "Chat":
               cursor = conn.cursor()
               cursor.execute(
                   """
-                            INSERT INTO messages (sender, receiver, message, media_data, media_type, timestamp)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO messages (sender, receiver, message, media_data, media_type, timestamp, is_read)
+                            VALUES (?, ?, ?, ?, ?, ?, 0)
                         """,
                   (
                       username,
@@ -1199,7 +1276,7 @@ elif current_tab == "Chat":
           )
         with c_gjoin:
           st.markdown("<br>", unsafe_allow_html=True)
-          if st.button("Join Group ➔", key=f"join_group_{g_title}"):
+          if st.button("Join ➔", key=f"join_group_{g_title}"):
             st.session_state.active_group_chat = g_title
             st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1373,7 +1450,7 @@ elif current_tab == "Profile":
                 🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp; 
                 👥 Followers: {followers_num} &nbsp;|&nbsp; Following: {following_num}
             </p>
-            <p style="color: #ccc; margin: 8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
+            <p style="color: #ccc; margin: `8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
         </div>
     """,
       unsafe_allow_html=True,
