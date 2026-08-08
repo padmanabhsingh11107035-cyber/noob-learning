@@ -37,6 +37,15 @@ def init_db():
   conn = get_db_connection()
   if conn:
     cursor = conn.cursor()
+
+    # Performance PRAGMAs - big impact on write/read speed for sqlite under Streamlit reruns
+    try:
+      cursor.execute("PRAGMA journal_mode=WAL")
+      cursor.execute("PRAGMA synchronous=NORMAL")
+      cursor.execute("PRAGMA temp_store=MEMORY")
+    except Exception as ex:
+      logger.warning(f"Could not set performance PRAGMAs: {ex}")
+
     cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,6 +161,36 @@ def init_db():
         cursor.execute("ALTER TABLE messages ADD COLUMN media_type TEXT")
       except Exception:
         pass
+
+    # Indexes - these are the biggest lag fix. Without them every chat/follow/unread
+    # lookup does a full table scan, which gets slower and slower as messages grow.
+    try:
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_messages_sender_receiver ON messages(sender, receiver)"
+      )
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_messages_receiver_read ON messages(receiver, is_read)"
+      )
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower)"
+      )
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following)"
+      )
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_name)"
+      )
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_name)"
+      )
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(username)"
+      )
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_reels_posts_username ON reels_posts(username)"
+      )
+    except Exception as ex:
+      logger.warning(f"Could not create indexes: {ex}")
 
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
@@ -901,16 +940,23 @@ elif current_tab == "Chat":
   )
 
 
-  def get_user_avatar_html(uname):
-    conn_u = get_db_connection()
+  def get_user_avatar_html(uname, avatar_cache=None):
+    # PERF FIX: previously this opened a brand new sqlite connection and ran a
+    # query for EVERY single chat bubble on EVERY rerun (N+1 queries), which is
+    # the main cause of chat lag as message history grows. Now it reads from a
+    # small dict that's fetched once per render via a single batched query.
     u_pic = ""
-    if conn_u:
-      cur_u = conn_u.cursor()
-      cur_u.execute("SELECT profile_pic FROM users WHERE username = ?", (uname,))
-      res = cur_u.fetchone()
-      if res and res["profile_pic"]:
-        u_pic = res["profile_pic"]
-      conn_u.close()
+    if avatar_cache is not None:
+      u_pic = avatar_cache.get(uname, "") or ""
+    else:
+      conn_u = get_db_connection()
+      if conn_u:
+        cur_u = conn_u.cursor()
+        cur_u.execute("SELECT profile_pic FROM users WHERE username = ?", (uname,))
+        res = cur_u.fetchone()
+        if res and res["profile_pic"]:
+          u_pic = res["profile_pic"]
+        conn_u.close()
 
     if u_pic and u_pic.startswith("data:image"):
       return f"<img src='{u_pic}' style='width: 28px; height: 28px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 6px;'>"
@@ -946,25 +992,32 @@ elif current_tab == "Chat":
           or search_query in p.get("full_name", "").lower()
       ]
 
+      # PERF FIX: previously this ran one "COUNT(*) ... WHERE sender = ?" query
+      # PER peer in the list on every rerun. Now it's a single grouped query
+      # for all unread counts, turned into a lookup dict.
+      unread_map = {}
+      conn_unread = get_db_connection()
+      if conn_unread:
+        cur_un = conn_unread.cursor()
+        cur_un.execute(
+            """
+                    SELECT sender, COUNT(*) as cnt FROM messages
+                    WHERE receiver = ? AND (is_read = 0 OR is_read IS NULL)
+                    GROUP BY sender
+                """,
+            (username,),
+        )
+        for row in cur_un.fetchall():
+          unread_map[row["sender"]] = row["cnt"]
+        conn_unread.close()
+
       conn_l = get_db_connection()
       for p_dict in filtered_peers:
         peer_uname = p_dict["username"]
         display_name = p_dict.get("full_name") or peer_uname
         peer_pic_val = p_dict.get("profile_pic", "")
 
-        unread_count = 0
-        if conn_l:
-          cur_l = conn_l.cursor()
-          cur_l.execute(
-              """
-                        SELECT COUNT(*) FROM messages 
-                        WHERE sender = ? AND receiver = ? AND (is_read = 0 OR is_read IS NULL)
-                    """,
-              (peer_uname, username),
-          )
-          row_cnt = cur_l.fetchone()
-          if row_cnt:
-            unread_count = row_cnt[0]
+        unread_count = unread_map.get(peer_uname, 0)
 
         c_avatar, c_info, c_chat = st.columns([0.6, 4.4, 1])
         with c_avatar:
@@ -997,6 +1050,7 @@ elif current_tab == "Chat":
         with c_chat:
           if st.button("Chat ➔", key=f"dm_btn_{peer_uname}"):
             if conn_l:
+              cur_l = conn_l.cursor()
               cur_l.execute(
                   """
                                 UPDATE messages SET is_read = 1 
@@ -1114,6 +1168,13 @@ elif current_tab == "Chat":
         conn.commit()
         conn.close()
 
+      # PERF FIX: build the avatar lookup once (we already have both pics in
+      # hand) instead of hitting the DB for every message bubble in the loop.
+      dm_avatar_cache = {
+          username: user.get("profile_pic", ""),
+          peer_name: peer_pic,
+      }
+
       chat_container = st.container(height=420)
       with chat_container:
         if not messages:
@@ -1123,7 +1184,7 @@ elif current_tab == "Chat":
           is_sender = m["sender"] == username
           align = "flex-end" if is_sender else "flex-start"
           bg = "#1f6feb" if is_sender else "#21262d"
-          avatar_html = get_user_avatar_html(m["sender"])
+          avatar_html = get_user_avatar_html(m["sender"], dm_avatar_cache)
 
           st.markdown(
               f"""
@@ -1505,6 +1566,25 @@ elif current_tab == "Chat":
         group_msgs = cursor.fetchall()
         conn.close()
 
+      # PERF FIX: previously get_user_avatar_html() ran its own DB query for
+      # every single group message bubble on every rerun. Now we fetch the
+      # profile pics for all distinct senders in this group's history in ONE
+      # query and reuse that small dict for the whole render.
+      distinct_senders = list({dict(gm)["sender"] for gm in group_msgs})
+      group_avatar_cache = {}
+      if distinct_senders:
+        conn_av = get_db_connection()
+        if conn_av:
+          cur_av = conn_av.cursor()
+          placeholders = ",".join("?" * len(distinct_senders))
+          cur_av.execute(
+              f"SELECT username, profile_pic FROM users WHERE username IN ({placeholders})",
+              distinct_senders,
+          )
+          for row in cur_av.fetchall():
+            group_avatar_cache[row["username"]] = row["profile_pic"] or ""
+          conn_av.close()
+
       group_container = st.container(height=420)
       with group_container:
         if not group_msgs:
@@ -1517,7 +1597,7 @@ elif current_tab == "Chat":
           is_sender = gm["sender"] == username
           align = "flex-end" if is_sender else "flex-start"
           bg = "#1f6feb" if is_sender else "#21262d"
-          avatar_html = get_user_avatar_html(gm["sender"])
+          avatar_html = get_user_avatar_html(gm["sender"], group_avatar_cache)
 
           st.markdown(
               f"""
