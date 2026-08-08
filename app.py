@@ -1393,22 +1393,10 @@ elif current_tab == "Chat":
 
       # -----------------------------------------------------------------------
       # LIVE MESSAGE AREA
-      # -----------------------------------------------------------------------
+      # The chat is rendered newest-first inside a column-reversed scroll box.
+      # This makes scrollTop=0 equal to the bottom of the conversation, so a
+      # Streamlit fragment refresh does not jump the user to the top.
       def _render_live_dm_messages():
-        conn_mark = get_db_connection()
-        if conn_mark:
-          cur_mark = conn_mark.cursor()
-          cur_mark.execute(
-              """
-              UPDATE messages
-              SET is_read = 1
-              WHERE sender = ? AND receiver = ? AND (is_read = 0 OR is_read IS NULL)
-              """,
-              (peer_name, username),
-          )
-          conn_mark.commit()
-          conn_mark.close()
-
         conn = get_db_connection()
         messages = []
         if conn:
@@ -1420,17 +1408,21 @@ elif current_tab == "Chat":
               WHERE (sender = ? AND receiver = ?)
                  OR (sender = ? AND receiver = ?)
               ORDER BY id DESC
-              LIMIT 150
+              LIMIT 100
               """,
               (username, peer_name, peer_name, username),
           )
-          messages = list(reversed(cursor.fetchall()))
+          messages = list(cursor.fetchall())
           conn.close()
 
         avatar_cache = {
             username: user.get("profile_pic", "") or "",
             peer_name: peer_pic,
         }
+
+        # Cache the two avatars used by this conversation so the one-second
+        # refresh does not repeatedly resize/encode the same images.
+        avatar_b64_cache = st.session_state.setdefault("dm_avatar_b64_cache", {})
 
         if not messages:
           empty_html = """
@@ -1443,20 +1435,44 @@ elif current_tab == "Chat":
           return
 
         bubbles = []
+        latest_message_id = int(dict(messages[0]).get("id", 0) or 0)
+
+        # Mark incoming messages read only when a new message appears instead of
+        # performing an UPDATE + COMMIT on every one-second refresh.
+        last_seen_key = f"dm_seen_message_{username}_{peer_name}"
+        previous_latest = st.session_state.get(last_seen_key)
+        if previous_latest != latest_message_id:
+          conn_mark = get_db_connection()
+          if conn_mark:
+            cur_mark = conn_mark.cursor()
+            cur_mark.execute(
+                """
+                UPDATE messages
+                SET is_read = 1
+                WHERE sender = ? AND receiver = ? AND (is_read = 0 OR is_read IS NULL)
+                """,
+                (peer_name, username),
+            )
+            conn_mark.commit()
+            conn_mark.close()
+          st.session_state[last_seen_key] = latest_message_id
+
         for msg in messages:
           m = dict(msg)
           is_sender = m["sender"] == username
-          avatar_bytes = _make_avatar_bytes(
-              avatar_cache.get(m["sender"], ""),
-              m["sender"][:1],
-              32,
-              True,
-          )
-          # _make_avatar_bytes returns a PIL Image, so encode it as a real PNG
-          # before putting it into the HTML data URL.
-          avatar_buffer = io.BytesIO()
-          avatar_bytes.save(avatar_buffer, format="PNG")
-          avatar_b64 = base64.b64encode(avatar_buffer.getvalue()).decode("ascii")
+          avatar_key = (m["sender"], avatar_cache.get(m["sender"], "") or "")
+          avatar_b64 = avatar_b64_cache.get(avatar_key)
+          if avatar_b64 is None:
+            avatar_image = _make_avatar_bytes(
+                avatar_cache.get(m["sender"], ""),
+                m["sender"][:1],
+                32,
+                True,
+            )
+            avatar_buffer = io.BytesIO()
+            avatar_image.save(avatar_buffer, format="PNG")
+            avatar_b64 = base64.b64encode(avatar_buffer.getvalue()).decode("ascii")
+            avatar_b64_cache[avatar_key] = avatar_b64
           avatar_src = f"data:image/png;base64,{avatar_b64}"
 
           sender_record = user if is_sender else peer_dict
@@ -1513,6 +1529,9 @@ elif current_tab == "Chat":
           """
           bubbles.append(bubble)
 
+        # IMPORTANT: messages are newest-first AND the container is column-reversed.
+        # Therefore the newest message is visually at the bottom and the browser's
+        # natural scroll position remains at the bottom after a fragment refresh.
         chat_html = f"""
         <style>
           html, body {{ margin:0; padding:0; background:transparent; overflow:hidden; }}
@@ -1521,33 +1540,28 @@ elif current_tab == "Chat":
             height:500px;
             overflow-y:auto;
             overflow-x:hidden;
-            padding:8px 12px 18px 12px;
+            padding:18px 12px 8px 12px;
             font-family:Arial,sans-serif;
             scrollbar-width:thin;
+            display:flex;
+            flex-direction:column-reverse;
+            justify-content:flex-start;
+            overscroll-behavior:contain;
+            scroll-behavior:auto;
           }}
           #chat-scroll::-webkit-scrollbar {{ width:7px; }}
           #chat-scroll::-webkit-scrollbar-thumb {{ background:#444; border-radius:10px; }}
+          #chat-scroll::-webkit-scrollbar-track {{ background:transparent; }}
         </style>
         <div id="chat-scroll">
           {''.join(bubbles)}
-          <div id="chat-bottom" style="height:1px;"></div>
         </div>
-        <script>
-          const box = document.getElementById('chat-scroll');
-          const bottom = document.getElementById('chat-bottom');
-          function scrollChatToBottom() {{
-            if (box) box.scrollTop = box.scrollHeight;
-            if (bottom) bottom.scrollIntoView({{block:'end'}});
-          }}
-          requestAnimationFrame(scrollChatToBottom);
-          setTimeout(scrollChatToBottom, 40);
-          setTimeout(scrollChatToBottom, 180);
-        </script>
         """
         components.html(chat_html, height=520, scrolling=False)
 
-      # Streamlit fragments prevent the complete page from flashing every second.
-      # They also keep the message composer stable while the conversation updates.
+      # Streamlit fragments update only the message area, keeping the composer and
+      # the rest of the chat page stable. A 1-second interval gives near-live chat
+      # without continuously rerunning the entire application.
       if hasattr(st, "fragment"):
         @st.fragment(run_every="1s")
         def _live_dm_fragment():
@@ -1555,7 +1569,6 @@ elif current_tab == "Chat":
 
         _live_dm_fragment()
       else:
-        # Compatibility fallback for older Streamlit versions.
         if st_autorefresh is not None:
           st_autorefresh(
               interval=1500,
