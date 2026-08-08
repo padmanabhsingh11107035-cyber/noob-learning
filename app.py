@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw, ImageOps
 import datetime
 import logging
 import sqlite3
+from pathlib import Path
 import sys
 from html import escape
 import streamlit as st
@@ -35,7 +36,7 @@ st.set_page_config(
 
 def get_db_connection():
   try:
-    conn = sqlite3.connect("database.db", check_same_thread=False)
+    conn = sqlite3.connect(str(Path(__file__).resolve().parent / "database.db"), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
   except Exception as e:
@@ -180,6 +181,9 @@ def init_db():
       )
       cursor.execute(
           "CREATE INDEX IF NOT EXISTS idx_messages_receiver_read ON messages(receiver, is_read)"
+      )
+      cursor.execute(
+          "CREATE INDEX IF NOT EXISTS idx_messages_conversation_time ON messages(sender, receiver, id DESC)"
       )
       cursor.execute(
           "CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower)"
@@ -656,8 +660,8 @@ if not st.session_state.logged_in:
     if st.session_state.auth_mode == "login":
       with st.form("login_form"):
         username_in = st.text_input(
-            "Phone number, username, or email",
-            placeholder="Phone number, username, or email",
+            "User ID or username",
+            placeholder="Enter your User ID or username",
         )
         password_in = st.text_input("Password", type="password", placeholder="Password")
         submitted = st.form_submit_button("Log In", use_container_width=True)
@@ -666,10 +670,18 @@ if not st.session_state.logged_in:
           conn = get_db_connection()
           if conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM users WHERE username = ? AND password = ?",
-                (username_in.strip().lower(), password_in),
-            )
+            login_username = (username_in or "").strip().lower()
+            login_password = password_in or ""
+            if login_username.isdigit():
+              cursor.execute(
+                  "SELECT * FROM users WHERE user_id = ? AND password = ?",
+                  (int(login_username), login_password),
+              )
+            else:
+              cursor.execute(
+                  "SELECT * FROM users WHERE LOWER(TRIM(username)) = ? AND password = ?",
+                  (login_username, login_password),
+              )
             row = cursor.fetchone()
             conn.close()
             if row:
