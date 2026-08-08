@@ -1,6 +1,4 @@
 streamlit
-pymysql
-cryptography
-mysql-connector-python
 streamlit-autorefresh
-
+mysql-connector-python
+Pillow
