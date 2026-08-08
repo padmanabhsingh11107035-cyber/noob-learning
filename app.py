@@ -7,9 +7,6 @@ import sqlite3
 import sys
 import streamlit as st
 
-# ==============================================================================
-# 0. LOGGING & PAGE CONFIG
-# ==============================================================================
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger("NoobLearningApp")
 
@@ -19,10 +16,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
-# ==============================================================================
-# 1. DATABASE SETUP & CONNECTION (ROBUST MIGRATION WITH GROUP ROLES & UNSEEN TRACKING)
-# ==============================================================================
 
 
 def get_db_connection():
@@ -40,7 +33,6 @@ def init_db():
   if conn:
     cursor = conn.cursor()
 
-    # Performance PRAGMAs - big impact on write/read speed for sqlite under Streamlit reruns
     try:
       cursor.execute("PRAGMA journal_mode=WAL")
       cursor.execute("PRAGMA synchronous=NORMAL")
@@ -145,7 +137,6 @@ def init_db():
             )
         """)
 
-    # Check columns for messages table
     cursor.execute("PRAGMA table_info(messages)")
     m_cols = [col["name"] for col in cursor.fetchall()]
     if "is_read" not in m_cols:
@@ -164,8 +155,6 @@ def init_db():
       except Exception:
         pass
 
-    # Indexes - these are the biggest lag fix. Without them every chat/follow/unread
-    # lookup does a full table scan, which gets slower and slower as messages grow.
     try:
       cursor.execute(
           "CREATE INDEX IF NOT EXISTS idx_messages_sender_receiver ON messages(sender, receiver)"
@@ -260,6 +249,71 @@ def get_user_stats(username):
       following_count = row[0]
     conn.close()
   return followers_count, following_count
+
+
+def get_profile_page_data(profile_username):
+  """Load a public profile and its content with a small number of DB queries."""
+  conn = get_db_connection()
+  if not conn:
+    return None, [], [], 0, 0
+
+  try:
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM users WHERE username = ?",
+        (profile_username,),
+    )
+    user_row = cursor.fetchone()
+    if not user_row:
+      conn.close()
+      return None, [], [], 0, 0
+
+    cursor.execute(
+        """
+        SELECT u.user_id, u.username, u.full_name, u.profile_pic, u.account_type
+        FROM follows f
+        JOIN users u ON u.username = f.follower
+        WHERE f.following = ?
+        ORDER BY LOWER(COALESCE(u.full_name, u.username)), u.username
+        """,
+        (profile_username,),
+    )
+    followers = cursor.fetchall()
+
+    cursor.execute(
+        """
+        SELECT u.user_id, u.username, u.full_name, u.profile_pic, u.account_type
+        FROM follows f
+        JOIN users u ON u.username = f.following
+        WHERE f.follower = ?
+        ORDER BY LOWER(COALESCE(u.full_name, u.username)), u.username
+        """,
+        (profile_username,),
+    )
+    following = cursor.fetchall()
+
+    cursor.execute(
+        """
+        SELECT id, username, caption, media_type, timestamp
+        FROM reels_posts
+        WHERE username = ?
+        ORDER BY id DESC
+        LIMIT 100
+        """,
+        (profile_username,),
+    )
+    posts = cursor.fetchall()
+
+    user_dict = dict(user_row)
+    conn.close()
+    return user_dict, followers, following, len(followers), len(following), posts
+  except Exception as ex:
+    logger.warning(f"Could not load profile {profile_username}: {ex}")
+    try:
+      conn.close()
+    except Exception:
+      pass
+    return None, [], [], 0, 0, []
 
 
 def register_user(
@@ -367,7 +421,7 @@ def update_user_profile(
       try:
         cursor.execute(
             """
-                    UPDATE users 
+                    UPDATE users
                     SET username = ?, full_name = ?, bio = ?, profile_pic = ?, gender = ?, birth_date = ?, account_type = ?, password = ?
                     WHERE username = ?
                 """,
@@ -426,7 +480,6 @@ def update_user_profile(
   return success, error_msg
 
 
-# --- SESSION STATE INITIALIZATION ---
 if "logged_in" not in st.session_state:
   st.session_state.logged_in = False
 if "user" not in st.session_state:
@@ -447,10 +500,11 @@ if "app_theme" not in st.session_state:
   st.session_state.app_theme = "Dark"
 if "selected_reel_user" not in st.session_state:
   st.session_state.selected_reel_user = None
+if "view_profile_username" not in st.session_state:
+  st.session_state.view_profile_username = None
+if "profile_list_mode" not in st.session_state:
+  st.session_state.profile_list_mode = None
 
-# ==============================================================================
-# 2. DYNAMIC THEME & CSS ENGINE (RESTORED THEME OPTION & STABLE BUTTON FIXES)
-# ==============================================================================
 is_dark = st.session_state.app_theme == "Dark"
 bg_gradient = (
     "linear-gradient(135deg, #0d1117 0%, #161b22 100%)"
@@ -471,7 +525,7 @@ st.markdown(
         color: {text_color};
     }}
     header {{visibility: hidden;}}
-    
+
     .auth-container {{
         max-width: 380px;
         margin: 40px auto;
@@ -482,7 +536,7 @@ st.markdown(
         padding: 35px 30px;
         box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
     }}
-    
+
     .auth-footer-box {{
         max-width: 380px;
         margin: 15px auto 40px auto;
@@ -511,7 +565,7 @@ st.markdown(
         visibility: visible !important;
         cursor: pointer !important;
     }}
-    
+
     div.stButton > button *, button[kind="secondary"] *, button[kind="primary"] * {{
         color: #000000 !important;
         -webkit-text-fill-color: #000000 !important;
@@ -525,7 +579,7 @@ st.markdown(
         background-color: #69F0AE !important;
         color: #000000 !important;
     }}
-    
+
     input, textarea, select {{
         background-color: {input_bg} !important;
         color: {text_color} !important;
@@ -557,9 +611,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ==============================================================================
-# 3. AUTHENTICATION SCREEN
-# ==============================================================================
 if not st.session_state.logged_in:
   _, center_col, _ = st.columns([1, 1.2, 1])
 
@@ -674,9 +725,6 @@ if not st.session_state.logged_in:
 
   st.stop()
 
-# ==============================================================================
-# 4. MAIN APP DASHBOARD & NAVIGATION BAR
-# ==============================================================================
 user = st.session_state.user
 username = user["username"]
 user_id = user.get("user_id", "N/A")
@@ -731,11 +779,11 @@ def _make_avatar_bytes(profile_value, letter, size=56, rainbow=False):
     return fallback
 
 
-# The navigation header is hidden while a conversation is open. This gives the
-# direct-chat screen the clean, separate-page feel requested by the user.
 show_main_nav = (
     st.session_state.active_chat_user is None
     and st.session_state.active_group_chat is None
+    and st.session_state.view_profile_username is None
+    and st.session_state.profile_list_mode is None
 )
 
 if show_main_nav:
@@ -765,6 +813,8 @@ if show_main_nav:
       st.session_state.nav_option = "Feed"
       st.session_state.active_chat_user = None
       st.session_state.active_group_chat = None
+      st.session_state.view_profile_username = None
+      st.session_state.profile_list_mode = None
       st.session_state.show_edit_profile = False
       st.rerun()
 
@@ -773,6 +823,8 @@ if show_main_nav:
       st.session_state.nav_option = "Reels"
       st.session_state.active_chat_user = None
       st.session_state.active_group_chat = None
+      st.session_state.view_profile_username = None
+      st.session_state.profile_list_mode = None
       st.session_state.show_edit_profile = False
       st.rerun()
 
@@ -781,6 +833,8 @@ if show_main_nav:
       st.session_state.nav_option = "Chat"
       st.session_state.active_chat_user = None
       st.session_state.active_group_chat = None
+      st.session_state.view_profile_username = None
+      st.session_state.profile_list_mode = None
       st.session_state.show_edit_profile = False
       st.rerun()
 
@@ -789,6 +843,8 @@ if show_main_nav:
       st.session_state.nav_option = "Profile"
       st.session_state.active_chat_user = None
       st.session_state.active_group_chat = None
+      st.session_state.view_profile_username = None
+      st.session_state.profile_list_mode = None
       st.session_state.show_edit_profile = False
       st.rerun()
 
@@ -822,6 +878,8 @@ if show_main_nav:
         st.session_state.user = None
         st.session_state.active_chat_user = None
         st.session_state.active_group_chat = None
+        st.session_state.view_profile_username = None
+        st.session_state.profile_list_mode = None
         st.rerun()
 
   st.markdown(
@@ -831,9 +889,6 @@ if show_main_nav:
 
 current_tab = st.session_state.get("nav_option", "Feed")
 
-# ==============================================================================
-# TAB 1: FEED
-# ==============================================================================
 if current_tab == "Feed":
   main_col, side_col = st.columns([2.2, 1.2])
 
@@ -871,9 +926,9 @@ if current_tab == "Feed":
     if conn:
       cursor = conn.cursor()
       cursor.execute("""
-                SELECT p.*, u.account_type 
-                FROM reels_posts p 
-                JOIN users u ON p.username = u.username 
+                SELECT p.*, u.account_type
+                FROM reels_posts p
+                JOIN users u ON p.username = u.username
                 ORDER BY p.id DESC
             """)
       posts = cursor.fetchall()
@@ -911,15 +966,9 @@ if current_tab == "Feed":
         unsafe_allow_html=True,
     )
 
-# ==============================================================================
-# TAB 2: REELS
-# ==============================================================================
 elif current_tab == "Reels":
   st.markdown("### 🎬 Reels Hub")
 
-  # ---------------------------------------------------------------------------
-  # TOP REEL / STORY STRIP
-  # ---------------------------------------------------------------------------
   conn_story = get_db_connection()
   story_users = []
   if conn_story:
@@ -968,10 +1017,10 @@ elif current_tab == "Reels":
     if conn:
       cursor = conn.cursor()
       cursor.execute("""
-                SELECT r.*, u.account_type 
-                FROM reels_posts r 
-                JOIN users u ON r.username = u.username 
-                WHERE r.media_type = 'Reel' 
+                SELECT r.*, u.account_type
+                FROM reels_posts r
+                JOIN users u ON r.username = u.username
+                WHERE r.media_type = 'Reel'
                 ORDER BY r.id DESC
             """)
       reels = cursor.fetchall()
@@ -1024,11 +1073,141 @@ elif current_tab == "Reels":
             st.success("Reel published successfully!")
             st.rerun()
 
-# ==============================================================================
-# TAB 3: CHAT & PRIVATE GROUP SECTION WITH ADMIN CONTROLS
-# ==============================================================================
 elif current_tab == "Chat":
-  if st.session_state.active_chat_user is None and st.session_state.active_group_chat is None:
+  if st.session_state.view_profile_username is not None:
+    profile_username = st.session_state.view_profile_username
+    profile_data, followers, following, followers_num, following_num, profile_posts = get_profile_page_data(profile_username)
+
+    if profile_data is None:
+      st.error("This profile is no longer available.")
+      if st.button("⬅ Back", key="profile_missing_back"):
+        st.session_state.view_profile_username = None
+        st.rerun()
+    else:
+      profile_name = profile_data.get("full_name") or profile_username
+      profile_pic = profile_data.get("profile_pic", "") or ""
+
+      if st.session_state.profile_list_mode is not None:
+        list_mode = st.session_state.profile_list_mode
+        back_col, title_col = st.columns([0.7, 6])
+        with back_col:
+          if st.button("⬅", key="profile_list_back", help="Back to profile"):
+            st.session_state.profile_list_mode = None
+            st.rerun()
+        with title_col:
+          st.markdown(
+              f"### {"Followers" if list_mode == "followers" else "Following"} · @{profile_username}"
+          )
+
+        people = followers if list_mode == "followers" else following
+        if not people:
+          st.info(
+              f"@{profile_username} has no {"followers" if list_mode == "followers" else "following"} yet."
+          )
+        else:
+          for person in people:
+            person_dict = dict(person)
+            person_username = person_dict.get("username", "")
+            person_name = person_dict.get("full_name") or person_username
+            person_id = person_dict.get("user_id", "N/A")
+            person_pic = person_dict.get("profile_pic", "") or ""
+            pc1, pc2 = st.columns([0.8, 6])
+            with pc1:
+              st.image(
+                  _make_avatar_bytes(person_pic, person_username[:1], 46, False),
+                  width=46,
+              )
+            with pc2:
+              if st.button(
+                  f"ID: {person_id} · @{person_username}",
+                  key=f"profile_list_person_{list_mode}_{person_username}",
+                  use_container_width=True,
+              ):
+                st.session_state.view_profile_username = person_username
+                st.session_state.profile_list_mode = None
+                st.rerun()
+              st.caption(person_name)
+            st.markdown(
+                f"<hr style='border:0.2px solid {border_color};margin:5px 0;'>",
+                unsafe_allow_html=True,
+            )
+      else:
+        back_col, title_col = st.columns([0.7, 6])
+        with back_col:
+          if st.button("⬅", key="view_profile_back", help="Back to chats"):
+            st.session_state.view_profile_username = None
+            st.session_state.profile_list_mode = None
+            st.rerun()
+        with title_col:
+          st.markdown("### 👤 Profile")
+
+        profile_head_left, profile_head_right = st.columns([1, 5])
+        with profile_head_left:
+          st.image(
+              _make_avatar_bytes(profile_pic, profile_username[:1], 96, False),
+              width=96,
+          )
+        with profile_head_right:
+          st.markdown(
+              f"## {profile_name} <span style='color:#888;font-size:15px;'>@{profile_username}</span>",
+              unsafe_allow_html=True,
+          )
+          st.markdown(
+              f"**🆔 User ID:** {profile_data.get('user_id','N/A')} &nbsp;&nbsp; **🔒 Account:** {profile_data.get('account_type','Public')}",
+              unsafe_allow_html=True,
+          )
+          st.write(profile_data.get("bio") or "No bio added yet.")
+
+          d1, d2 = st.columns(2)
+          with d1:
+            if st.button(
+                f"👥 Followers · {followers_num}",
+                key="profile_followers_button",
+                use_container_width=True,
+            ):
+              st.session_state.profile_list_mode = "followers"
+              st.rerun()
+          with d2:
+            if st.button(
+                f"👥 Following · {following_num}",
+                key="profile_following_button",
+                use_container_width=True,
+            ):
+              st.session_state.profile_list_mode = "following"
+              st.rerun()
+
+        detail_cols = st.columns(3)
+        with detail_cols[0]:
+          st.metric("Age", profile_data.get("age") or "—")
+        with detail_cols[1]:
+          st.metric("Gender", profile_data.get("gender") or "—")
+        with detail_cols[2]:
+          st.metric("Birth date", profile_data.get("birth_date") or "—")
+
+        st.markdown("---")
+        st.markdown("### 📝 Posts & Reels")
+
+        if not profile_posts:
+          st.info(f"@{profile_username} has not posted anything yet.")
+        else:
+          for post in profile_posts:
+            post_dict = dict(post)
+            post_type = post_dict.get("media_type") or "Post"
+            label = "🎬 Reel" if str(post_type).lower() == "reel" else "📝 Post"
+            caption_text = post_dict.get("caption") or ""
+            timestamp_text = post_dict.get("timestamp") or ""
+            st.markdown(
+                f"""
+                <div style="background:{card_bg};padding:16px;border-radius:14px;border:1px solid {border_color};margin-bottom:12px;">
+                    <div style="font-weight:800;color:#00E676;">{label}</div>
+                    <div style="font-size:12px;color:#888;margin-top:3px;">{timestamp_text}</div>
+                    <div style="font-size:15px;margin-top:9px;white-space:pre-wrap;word-break:break-word;">{caption_text}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+  elif st.session_state.active_chat_user is None and st.session_state.active_group_chat is None:
     chat_mode_col1, chat_mode_col2 = st.columns(2)
     with chat_mode_col1:
       if st.button("💬 Direct Messages", use_container_width=True, key="chat_mode_direct"):
@@ -1048,10 +1227,6 @@ elif current_tab == "Chat":
 
 
   def get_user_avatar_html(uname, avatar_cache=None):
-    # PERF FIX: previously this opened a brand new sqlite connection and ran a
-    # query for EVERY single chat bubble on EVERY rerun (N+1 queries), which is
-    # the main cause of chat lag as message history grows. Now it reads from a
-    # small dict that's fetched once per render via a single batched query.
     u_pic = ""
     if avatar_cache is not None:
       u_pic = avatar_cache.get(uname, "") or ""
@@ -1072,29 +1247,7 @@ elif current_tab == "Chat":
       return f"<span style='display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background-color: #00C853; color: #0e1117; border-radius: 50%; font-weight: bold; font-size: 12px; vertical-align: middle; margin-right: 6px;'>{initial}</span>"
 
 
-  # ----------------------------------------------------
-  # SUB-MODE A: DIRECT MESSAGES
-  # ----------------------------------------------------
   if st.session_state.chat_sub_mode == "Direct Messages":
-    conn = get_db_connection()
-    peers = []
-    if conn:
-      cursor = conn.cursor()
-      cursor.execute(
-          """
-          SELECT user_id, username, full_name, profile_pic, account_type
-          FROM users
-          WHERE username != ?
-          ORDER BY username COLLATE NOCASE ASC
-          """,
-          (username,),
-      )
-      peers = cursor.fetchall()
-      conn.close()
-
-    # -------------------------------------------------------------------------
-    # OPEN CONVERSATION
-    # -------------------------------------------------------------------------
     if st.session_state.active_chat_user is not None:
       peer_name = st.session_state.active_chat_user
 
@@ -1121,19 +1274,13 @@ elif current_tab == "Chat":
       peer_user_id = peer_dict.get("user_id", "N/A")
       peer_pic = peer_dict.get("profile_pic", "") or ""
 
-      # Optional one-second refresh. If the package is not installed, the chat
-      # remains fully functional and refreshes whenever the user interacts.
-      try:
-        from streamlit_autorefresh import st_autorefresh
+      if st_autorefresh is not None:
         st_autorefresh(
             interval=1000,
             limit=None,
             key=f"live_dm_{username}_{peer_name}",
         )
-      except ImportError:
-        pass
 
-      # Mark incoming messages as read in one query.
       conn_mark = get_db_connection()
       if conn_mark:
         cur_mark = conn_mark.cursor()
@@ -1148,9 +1295,6 @@ elif current_tab == "Chat":
         conn_mark.commit()
         conn_mark.close()
 
-      # -----------------------------------------------------------------------
-      # CHAT-ONLY HEADER
-      # -----------------------------------------------------------------------
       back_col, avatar_col, title_col, delete_col = st.columns([0.65, 0.75, 4.4, 0.9])
 
       with back_col:
@@ -1198,9 +1342,6 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
-      # -----------------------------------------------------------------------
-      # LOAD ONLY THE ACTIVE CONVERSATION
-      # -----------------------------------------------------------------------
       conn = get_db_connection()
       messages = []
       if conn:
@@ -1211,11 +1352,12 @@ elif current_tab == "Chat":
             FROM messages
             WHERE (sender = ? AND receiver = ?)
                OR (sender = ? AND receiver = ?)
-            ORDER BY id ASC
+            ORDER BY id DESC
+            LIMIT 150
             """,
             (username, peer_name, peer_name, username),
         )
-        messages = cursor.fetchall()
+        messages = list(reversed(cursor.fetchall()))
         conn.close()
 
       avatar_cache = {
@@ -1284,9 +1426,6 @@ elif current_tab == "Chat":
                   key=f"dm_download_{m['id']}",
               )
 
-      # -----------------------------------------------------------------------
-      # MESSAGE COMPOSER
-      # -----------------------------------------------------------------------
       with st.form(key="dm_send_form", clear_on_submit=True):
         c_input, c_file, c_btn = st.columns([3.5, 2, 1])
 
@@ -1347,13 +1486,25 @@ elif current_tab == "Chat":
             conn_send.close()
             st.rerun()
 
-    # -------------------------------------------------------------------------
-    # CHAT LIST
-    # -------------------------------------------------------------------------
     else:
       st.markdown("### 💬 Direct Messages")
 
-      # Top reel/story strip: only users who currently have at least one Reel.
+      conn = get_db_connection()
+      peers = []
+      if conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT user_id, username, full_name, profile_pic, account_type
+            FROM users
+            WHERE username != ?
+            ORDER BY username COLLATE NOCASE ASC
+            """,
+            (username,),
+        )
+        peers = cursor.fetchall()
+        conn.close()
+
       conn_story = get_db_connection()
       story_users = []
       if conn_story:
@@ -1449,10 +1600,12 @@ elif current_tab == "Chat":
           badge = f" · {unread_count} new" if unread_count else ""
           if st.button(
               f"ID: {peer_id} · @{peer_uname}{badge}",
-              key=f"open_dm_info_{peer_uname}",
+              key=f"open_profile_{peer_uname}",
               use_container_width=True,
           ):
-            st.session_state.active_chat_user = peer_uname
+            st.session_state.view_profile_username = peer_uname
+            st.session_state.profile_list_mode = None
+            st.session_state.active_chat_user = None
             st.rerun()
           st.caption(display_name)
 
@@ -1479,9 +1632,6 @@ elif current_tab == "Chat":
             unsafe_allow_html=True,
         )
 
-  # ----------------------------------------------------
-  # SUB-MODE B: GROUP CHATS (PRIVATE WITH ADMIN CONTROLS)
-  # ----------------------------------------------------
   else:
     if st.session_state.active_group_chat is None:
       st.markdown("### 👥 Private Group Chats")
@@ -1492,7 +1642,6 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
-      # Fetch all users for member selection
       conn_u = get_db_connection()
       all_users = []
       if conn_u:
@@ -1521,7 +1670,6 @@ elif current_tab == "Chat":
             if conn:
               cursor = conn.cursor()
               try:
-                # Insert Group
                 cursor.execute(
                     """
                                 INSERT INTO chat_groups (group_name, created_by, description, timestamp)
@@ -1534,7 +1682,6 @@ elif current_tab == "Chat":
                         get_current_ist_time(),
                     ),
                 )
-                # Insert Creator as Admin
                 cursor.execute(
                     """
                                 INSERT OR IGNORE INTO group_members (group_name, username, role)
@@ -1542,7 +1689,6 @@ elif current_tab == "Chat":
                             """,
                     (g_name.strip(), username, "Admin"),
                 )
-                # Insert Selected Members
                 for member in selected_members:
                   cursor.execute(
                       """
@@ -1619,7 +1765,6 @@ elif current_tab == "Chat":
     else:
       active_group = st.session_state.active_group_chat
 
-      # Check if user is admin of this group
       conn_role = get_db_connection()
       user_role = "Member"
       if conn_role:
@@ -1644,7 +1789,6 @@ elif current_tab == "Chat":
             unsafe_allow_html=True,
         )
 
-      # Admin Management Expander
       if user_role == "Admin":
         with st.expander("🛠️ Admin Controls (Manage Members & Admins)"):
           conn_m = get_db_connection()
@@ -1749,14 +1893,13 @@ elif current_tab == "Chat":
           unsafe_allow_html=True,
       )
 
-      # Optimized group chat loading block without recursive/nested fragmented loops
       conn = get_db_connection()
       group_msgs = []
       if conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-                    SELECT * FROM group_messages 
+                    SELECT * FROM group_messages
                     WHERE group_name = ?
                     ORDER BY id ASC
                 """,
@@ -1765,10 +1908,6 @@ elif current_tab == "Chat":
         group_msgs = cursor.fetchall()
         conn.close()
 
-      # PERF FIX: previously get_user_avatar_html() ran its own DB query for
-      # every single group message bubble on every rerun. Now we fetch the
-      # profile pics for all distinct senders in this group's history in ONE
-      # query and reuse that small dict for the whole render.
       distinct_senders = list({dict(gm)["sender"] for gm in group_msgs})
       group_avatar_cache = {}
       if distinct_senders:
@@ -1892,9 +2031,6 @@ elif current_tab == "Chat":
             conn.close()
             st.rerun()
 
-# ==============================================================================
-# TAB 4: PROFILE SECTION
-# ==============================================================================
 elif current_tab == "Profile":
   conn = get_db_connection()
   if conn:
@@ -1912,8 +2048,8 @@ elif current_tab == "Profile":
         <div style="background-color: {card_bg}; padding: 25px; border-radius: 15px; border: 1px solid {border_color};">
             <h2 style="margin: 0;">{user.get('full_name') or username} <span style="font-size: 15px; color: #888;">(@{username})</span></h2>
             <p style="color: #00C853; font-weight: 600; margin: 4px 0; font-size: 14px;">
-                🆔 User ID: {user.get('user_id', 'N/A')} &nbsp;|&nbsp; 
-                🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp; 
+                🆔 User ID: {user.get('user_id', 'N/A')} &nbsp;|&nbsp;
+                🔒 Account: {user.get('account_type', 'Public')} &nbsp;|&nbsp;
                 👥 Followers: {followers_num} &nbsp;|&nbsp; Following: {following_num}
             </p>
             <p style="margin: 8px 0 0 0; font-size: 15px;">{user.get('bio') or 'No bio added yet.'}</p>
