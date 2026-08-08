@@ -1452,7 +1452,11 @@ elif current_tab == "Chat":
               32,
               True,
           )
-          avatar_b64 = base64.b64encode(avatar_bytes).decode("ascii")
+          # _make_avatar_bytes returns a PIL Image, so encode it as a real PNG
+          # before putting it into the HTML data URL.
+          avatar_buffer = io.BytesIO()
+          avatar_bytes.save(avatar_buffer, format="PNG")
+          avatar_b64 = base64.b64encode(avatar_buffer.getvalue()).decode("ascii")
           avatar_src = f"data:image/png;base64,{avatar_b64}"
 
           sender_record = user if is_sender else peer_dict
