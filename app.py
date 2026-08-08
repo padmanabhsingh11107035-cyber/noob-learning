@@ -36,7 +36,7 @@ st.set_page_config(
 
 def get_db_connection():
   try:
-    conn = sqlite3.connect(str(Path(__file__).resolve().parent / "database.db"), check_same_thread=False)
+    conn = sqlite3.connect("database.db", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
   except Exception as e:
