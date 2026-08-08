@@ -5,7 +5,9 @@ import datetime
 import logging
 import sqlite3
 import sys
+from html import escape
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Optional live-chat refresh. The app remains usable if the package is not installed.
 try:
@@ -1334,30 +1336,10 @@ elif current_tab == "Chat":
       peer_user_id = peer_dict.get("user_id", "N/A")
       peer_pic = peer_dict.get("profile_pic", "") or ""
 
-      # Live refresh. It is isolated to an open direct chat so Feed/Reels/Profile
-      # are not repeatedly refreshed. If the optional package is unavailable,
-      # normal Streamlit interactions still work.
-      if st_autorefresh is not None:
-        st_autorefresh(
-            interval=1000,
-            limit=None,
-            key=f"live_dm_{username}_{peer_name}",
-        )
-
-      # Mark incoming messages as read in one query.
-      conn_mark = get_db_connection()
-      if conn_mark:
-        cur_mark = conn_mark.cursor()
-        cur_mark.execute(
-            """
-            UPDATE messages
-            SET is_read = 1
-            WHERE sender = ? AND receiver = ? AND (is_read = 0 OR is_read IS NULL)
-            """,
-            (peer_name, username),
-        )
-        conn_mark.commit()
-        conn_mark.close()
+      # The live message area is refreshed as a Streamlit fragment. This is
+      # important: refreshing the whole app every second makes the screen flash
+      # darker/lighter and can interrupt typing in the message box.
+      # The fragment refreshes only the conversation itself.
 
       # -----------------------------------------------------------------------
       # CHAT-ONLY HEADER
@@ -1410,93 +1392,173 @@ elif current_tab == "Chat":
       )
 
       # -----------------------------------------------------------------------
-      # LOAD ONLY THE ACTIVE CONVERSATION
+      # LIVE MESSAGE AREA
       # -----------------------------------------------------------------------
-      conn = get_db_connection()
-      messages = []
-      if conn:
-        cursor = conn.cursor()
-        # Keep the live chat lightweight. Very old messages remain in SQLite,
-        # but only the latest 150 are rendered on each one-second refresh.
-        cursor.execute(
-            """
-            SELECT id, sender, receiver, message, media_data, media_type, timestamp
-            FROM messages
-            WHERE (sender = ? AND receiver = ?)
-               OR (sender = ? AND receiver = ?)
-            ORDER BY id DESC
-            LIMIT 150
-            """,
-            (username, peer_name, peer_name, username),
-        )
-        messages = list(reversed(cursor.fetchall()))
-        conn.close()
+      def _render_live_dm_messages():
+        conn_mark = get_db_connection()
+        if conn_mark:
+          cur_mark = conn_mark.cursor()
+          cur_mark.execute(
+              """
+              UPDATE messages
+              SET is_read = 1
+              WHERE sender = ? AND receiver = ? AND (is_read = 0 OR is_read IS NULL)
+              """,
+              (peer_name, username),
+          )
+          conn_mark.commit()
+          conn_mark.close()
 
-      avatar_cache = {
-          username: user.get("profile_pic", "") or "",
-          peer_name: peer_pic,
-      }
+        conn = get_db_connection()
+        messages = []
+        if conn:
+          cursor = conn.cursor()
+          cursor.execute(
+              """
+              SELECT id, sender, receiver, message, media_data, media_type, timestamp
+              FROM messages
+              WHERE (sender = ? AND receiver = ?)
+                 OR (sender = ? AND receiver = ?)
+              ORDER BY id DESC
+              LIMIT 150
+              """,
+              (username, peer_name, peer_name, username),
+          )
+          messages = list(reversed(cursor.fetchall()))
+          conn.close()
 
-      chat_container = st.container(height=500)
-      with chat_container:
+        avatar_cache = {
+            username: user.get("profile_pic", "") or "",
+            peer_name: peer_pic,
+        }
+
         if not messages:
-          st.info(f"No messages yet with @{peer_name}. Say hello!")
+          empty_html = """
+          <div style="height:500px;display:flex;align-items:center;justify-content:center;
+                       color:#8b949e;font-family:Arial,sans-serif;font-size:15px;">
+              No messages yet. Say hello! 👋
+          </div>
+          """
+          components.html(empty_html, height=500, scrolling=False)
+          return
 
+        bubbles = []
         for msg in messages:
           m = dict(msg)
           is_sender = m["sender"] == username
-          align = "flex-end" if is_sender else "flex-start"
-          bubble_bg = "#1f6feb" if is_sender else "#21262d"
-          sender_record = user if is_sender else peer_dict
-          sender_id = sender_record.get("user_id", "N/A")
-
-          bubble_cols = st.columns([1, 8, 1])
-          target = bubble_cols[2] if is_sender else bubble_cols[0]
-          with target:
-            st.image(
-                _make_avatar_bytes(
-                    avatar_cache.get(m["sender"], ""),
-                    m["sender"][:1],
-                    30,
-                    False,
-                ),
-                width=30,
-            )
-
-          st.markdown(
-              f"""
-              <div style="display:flex;justify-content:{align};margin:0 0 6px 0;">
-                <div style="background:{bubble_bg};color:#fff;padding:9px 13px;border-radius:12px;max-width:72%;word-break:break-word;">
-                  <div style="font-size:10px;color:#b8c0cc;margin-bottom:3px;">
-                    ID: {sender_id} · @{m['sender']} · {m.get('timestamp','')}
-                  </div>
-                  <div style="font-size:14px;line-height:1.35;">{m.get('message','')}</div>
-                </div>
-              </div>
-              """,
-              unsafe_allow_html=True,
+          avatar_bytes = _make_avatar_bytes(
+              avatar_cache.get(m["sender"], ""),
+              m["sender"][:1],
+              32,
+              True,
           )
+          avatar_b64 = base64.b64encode(avatar_bytes).decode("ascii")
+          avatar_src = f"data:image/png;base64,{avatar_b64}"
 
-          if m.get("media_data"):
-            if m.get("media_type") == "image":
-              try:
-                media_bytes = base64.b64decode(m["media_data"].split(",", 1)[1])
-                st.image(media_bytes, width=260)
-              except Exception:
-                pass
-            elif m.get("media_type") == "video":
-              try:
-                media_bytes = base64.b64decode(m["media_data"].split(",", 1)[1])
-                st.video(media_bytes)
-              except Exception:
-                pass
-            elif m.get("media_type") == "document":
-              st.download_button(
-                  "📥 Download attachment",
-                  data=base64.b64decode(m["media_data"].split(",", 1)[1]),
-                  file_name="attachment",
-                  key=f"dm_download_{m['id']}",
-              )
+          sender_record = user if is_sender else peer_dict
+          sender_id = escape(str(sender_record.get("user_id", "N/A")))
+          sender_name = escape(str(m.get("sender", "")))
+          timestamp = escape(str(m.get("timestamp", "")))
+          message_text = escape(str(m.get("message", ""))).replace("\n", "<br>")
+
+          bg = "#1f6feb" if is_sender else "#21262d"
+          side = "flex-end" if is_sender else "flex-start"
+          bubble_radius = "14px 14px 4px 14px" if is_sender else "14px 14px 14px 4px"
+
+          media_html = ""
+          media_data = m.get("media_data")
+          media_type = m.get("media_type")
+          if media_data:
+            try:
+              safe_media = escape(str(media_data), quote=True)
+              if media_type == "image":
+                media_html = (
+                    f'<img src="{safe_media}" style="display:block;max-width:280px;'
+                    'max-height:360px;border-radius:12px;margin-top:8px;object-fit:contain;">'
+                )
+              elif media_type == "video":
+                media_html = (
+                    f'<video controls preload="metadata" style="display:block;max-width:320px;'
+                    f'max-height:380px;border-radius:12px;margin-top:8px;"><source src="{safe_media}"></video>'
+                )
+              elif media_type == "document":
+                media_html = (
+                    f'<a href="{safe_media}" download="attachment" style="display:inline-block;'
+                    'margin-top:8px;padding:8px 12px;border-radius:8px;background:#00c853;'
+                    'color:#07120b;text-decoration:none;font-weight:700;">📥 Download attachment</a>'
+                )
+            except Exception:
+              media_html = ""
+
+          bubble = f"""
+          <div style="display:flex;justify-content:{side};width:100%;margin:0 0 10px 0;">
+            <div style="display:flex;align-items:flex-end;gap:7px;max-width:82%;
+                        flex-direction:{'row-reverse' if is_sender else 'row'};">
+              <img src="{avatar_src}" width="32" height="32"
+                   style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex:0 0 32px;">
+              <div style="background:{bg};color:#fff;padding:9px 13px;border-radius:{bubble_radius};
+                          word-break:break-word;box-shadow:0 2px 8px rgba(0,0,0,.12);">
+                <div style="font-size:10px;color:#b8c0cc;margin-bottom:4px;white-space:nowrap;">
+                  ID: {sender_id} · @{sender_name} · {timestamp}
+                </div>
+                <div style="font-size:14px;line-height:1.4;">{message_text}</div>
+                {media_html}
+              </div>
+            </div>
+          </div>
+          """
+          bubbles.append(bubble)
+
+        chat_html = f"""
+        <style>
+          html, body {{ margin:0; padding:0; background:transparent; overflow:hidden; }}
+          #chat-scroll {{
+            box-sizing:border-box;
+            height:500px;
+            overflow-y:auto;
+            overflow-x:hidden;
+            padding:8px 12px 18px 12px;
+            font-family:Arial,sans-serif;
+            scrollbar-width:thin;
+          }}
+          #chat-scroll::-webkit-scrollbar {{ width:7px; }}
+          #chat-scroll::-webkit-scrollbar-thumb {{ background:#444; border-radius:10px; }}
+        </style>
+        <div id="chat-scroll">
+          {''.join(bubbles)}
+          <div id="chat-bottom" style="height:1px;"></div>
+        </div>
+        <script>
+          const box = document.getElementById('chat-scroll');
+          const bottom = document.getElementById('chat-bottom');
+          function scrollChatToBottom() {{
+            if (box) box.scrollTop = box.scrollHeight;
+            if (bottom) bottom.scrollIntoView({{block:'end'}});
+          }}
+          requestAnimationFrame(scrollChatToBottom);
+          setTimeout(scrollChatToBottom, 40);
+          setTimeout(scrollChatToBottom, 180);
+        </script>
+        """
+        components.html(chat_html, height=520, scrolling=False)
+
+      # Streamlit fragments prevent the complete page from flashing every second.
+      # They also keep the message composer stable while the conversation updates.
+      if hasattr(st, "fragment"):
+        @st.fragment(run_every="1s")
+        def _live_dm_fragment():
+          _render_live_dm_messages()
+
+        _live_dm_fragment()
+      else:
+        # Compatibility fallback for older Streamlit versions.
+        if st_autorefresh is not None:
+          st_autorefresh(
+              interval=1500,
+              limit=None,
+              key=f"live_dm_fallback_{username}_{peer_name}",
+          )
+        _render_live_dm_messages()
 
       # -----------------------------------------------------------------------
       # MESSAGE COMPOSER
